@@ -1,5 +1,6 @@
 ﻿// src/pages/ChatbotPage.jsx
 import { useState, useEffect, useRef } from "react";
+import { useNavigate } from "react-router-dom";
 
 // ✅ 챗봇 서버 HTTP / WS 주소 설정
 const CHATBOT_HTTP_BASE_URL = (
@@ -10,9 +11,11 @@ const CHATBOT_HTTP_BASE_URL = (
 const CHATBOT_WS_BASE_URL = CHATBOT_HTTP_BASE_URL.replace(/^http/, "ws");
 
 export default function ChatbotPage() {
+  const navigate = useNavigate();
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   const messagesEndRef = useRef(null);
 
@@ -35,12 +38,22 @@ export default function ChatbotPage() {
   }, []);
 
   // 🔹 로그인/로컬 저장 정보에서 사용자 식별 값 가져오기
-  const memberId = localStorage.getItem("memberId") || "guest";
+  const memberId = localStorage.getItem("memberId") || null;
   const name = localStorage.getItem("name") || "게스트";
   const contact =
     localStorage.getItem("username") ||
     localStorage.getItem("email") ||
     "";
+
+  // 로그인 여부 체크 + 리다이렉트
+  useEffect(() => {
+    const loggedIn = Boolean(memberId);
+    setIsLoggedIn(loggedIn);
+    if (!loggedIn) {
+      alert("로그인이 필요한 서비스입니다. 로그인 페이지로 이동합니다.");
+      navigate("/login");
+    }
+  }, [memberId, navigate]);
 
   // 🔍 응답 객체 안에서 token 관련 문자열을 재귀적으로 찾는 함수
   const findTokenInObject = (obj) => {

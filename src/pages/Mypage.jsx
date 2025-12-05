@@ -1,5 +1,5 @@
 ﻿// src/pages/MyPage.jsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useNavigate, Link, useLocation } from "react-router-dom";
 import { api } from "../api/http"; // 공통 axios
 import { unwrapResult } from "../api/response"; // { result }만 뽑는 헬퍼
@@ -74,6 +74,10 @@ export default function MyPage() {
   const [createClubError, setCreateClubError] = useState(null);
   const myMemberIdForUI =
     profile.memberId || localStorage.getItem("memberId") || null;
+  const createdIdsForUI = useMemo(
+    () => loadMyCreatedClubIds(myMemberIdForUI),
+    [myMemberIdForUI]
+  );
 
   // 어떤 동호회 카드가 펼쳐져 있는지(상세)
   const [expandedClubId, setExpandedClubId] = useState(null);

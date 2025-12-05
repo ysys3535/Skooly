@@ -1,5 +1,6 @@
 // src/App.jsx
-import { Routes, Route, Outlet, Navigate, Link } from "react-router-dom";
+import { useState } from "react";
+import { Routes, Route, Outlet, Navigate } from "react-router-dom";
 import Header from "./components/Header.jsx";
 
 import HomePage from "./pages/HomePage.jsx";
@@ -13,8 +14,11 @@ import ChatbotPage from "./pages/ChatbotPage.jsx";
 import MyPage from "./pages/Mypage.jsx";
 import ClubRegisterPage from "./pages/ClubRegisterPage.jsx";
 import ProtectedRoute from "./components/ProtectedRoute.jsx";
+import ChatbotWidget from "./components/ChatbotWidget.jsx"; // ⬅️ 새로 추가될 위젯 컴포넌트
 
 function Layout() {
+  const [isChatOpen, setIsChatOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-slate-50">
       <Header />
@@ -23,14 +27,20 @@ function Layout() {
         <Outlet />
       </div>
 
-      {/* 우측 하단 고정 챗봇 버튼 */}
-      <Link
-        to="/chatbot"
+      {/* 우측 하단 고정 챗봇 버튼 (페이지 이동 X, 위젯 토글) */}
+      <button
+        type="button"
+        onClick={() => setIsChatOpen((prev) => !prev)}
         className="fixed bottom-4 right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 md:h-14 md:w-14"
-        aria-label="체육시설 예약 챗봇으로 이동"
+        aria-label="체육시설 예약 챗봇 열기"
       >
         <span className="text-xl md:text-2xl">🤖</span>
-      </Link>
+      </button>
+
+      {/* 챗봇 위젯 (열려 있을 때만 표시) */}
+      {isChatOpen && (
+        <ChatbotWidget onClose={() => setIsChatOpen(false)} />
+      )}
     </div>
   );
 }
@@ -47,7 +57,7 @@ export default function App() {
         <Route path="/clubs/:clubId" element={<ClubDetailPage />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/signup" element={<SignupPage />} />
-        <Route path="/chatbot" element={<ChatbotPage />} />
+        <Route path="/chatbot" element={<ChatbotPage />} />  {/* 헤더 메뉴에서 들어가는 풀페이지용 챗봇 */}
 
         {/* 🔐 마이페이지 보호 라우트 */}
         <Route
