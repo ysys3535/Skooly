@@ -1,0 +1,21 @@
+<svg width="200" height="200" viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title">
+  <title>Skooly 로고</title>
+  <path
+    d="M50 72c0-26.5 23-52 50-52s50 25.5 50 52h18c10 0 18 8 18 18v82c0 10-8 18-18 18H32c-10 0-18-8-18-18V90c0-10 8-18 18-18h18z"
+    fill="#1f6fe5"
+  />
+  <path
+    d="M70 70c0-16.5 13.5-32 30-32s30 15.5 30 32h-12c0-11-8-20-18-20s-18 9-18 20z"
+    fill="#1f6fe5"
+  />
+  <circle cx="82" cy="104" r="7" fill="#ffffff" />
+  <circle cx="118" cy="104" r="7" fill="#ffffff" />
+  <path
+    d="M82 132c6 7 13.5 10.5 23 10.5S122 139 128 132"
+    fill="none"
+    stroke="#ffffff"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>

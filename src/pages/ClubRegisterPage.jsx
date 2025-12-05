@@ -87,7 +87,7 @@ export default function ClubRegisterPage() {
         }
       }
     } catch (e) {
-      console.error("저장된 클럽 템플릿 로드 실패:", e);
+      console.error("저장된 동호회 템플릿 로드 실패:", e);
     }
   }, []);
 
@@ -111,14 +111,13 @@ export default function ClubRegisterPage() {
     if (
       !form.clubName ||
       !form.school ||
-      !form.schoolId ||
       !form.sport ||
       !form.description ||
       !form.representativeName ||
       !form.phone
     ) {
       alert(
-        "클럽명, 학교 이름/ID, 종목, 소개, 대표자 이름, 대표 전화번호는 필수 입력입니다."
+        "클럽명, 학교 선택, 종목, 소개, 대표자 이름, 대표 전화번호는 필수 입력입니다."
       );
       return;
     }
@@ -126,7 +125,7 @@ export default function ClubRegisterPage() {
     const schoolIdNum = Number(form.schoolId);
 
     if (!schoolIdNum || Number.isNaN(schoolIdNum)) {
-      alert("학교 ID를 숫자로 입력해 주세요.");
+      alert("학교 선택이 잘못되었습니다. 다시 검색 후 선택해 주세요.");
       return;
     }
 
@@ -323,7 +322,7 @@ export default function ClubRegisterPage() {
     <div className="min-h-screen bg-[#EFF6FF]">
       <header className="bg-white border-b">
         <div className="mx-auto max-w-3xl px-4 py-4 flex items-center justify-between">
-          <h1 className="text-lg font-semibold md:text-xl">클럽 등록</h1>
+          <h1 className="text-lg font-semibold md:text-xl">동호회 등록</h1>
         </div>
       </header>
 
@@ -487,35 +486,9 @@ export default function ClubRegisterPage() {
               2. 학교-동호회 등록
             </p>
 
-            {/* 생성된 clubId 표시 */}
-            <div className="grid gap-4 md:grid-cols-2">
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">
-                  생성된 clubId (자동)
-                </label>
-                <input
-                  type="text"
-                  value={form.clubId}
-                  readOnly
-                  className="w-full rounded-xl border border-gray-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
-                  placeholder="클럽 생성 후 자동으로 채워집니다."
-                />
-              </div>
-              <div>
-                <label className="mb-1 block text-xs font-medium text-gray-700">
-                  학교 ID <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="number"
-                  name="schoolId"
-                  value={form.schoolId}
-                  onChange={handleChange}
-                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  placeholder="예) 1"
-                  min="1"
-                />
-              </div>
-            </div>
+            {/* 숨김 필드: clubId, schoolId (화면에는 노출하지 않음) */}
+            <input type="hidden" name="clubId" value={form.clubId} />
+            <input type="hidden" name="schoolId" value={form.schoolId} />
 
             {/* 학교 검색 / 선택 */}
             <div className="space-y-2">
@@ -571,17 +544,12 @@ export default function ClubRegisterPage() {
                         {s.schoolName || s.name || "학교 이름 미지정"}
                       </p>
                       <p className="text-[11px] text-slate-500">
-                        ID: {s.schoolId || s.id || "?"}
+                        주소지: {s.address || "정보 없음"}
                       </p>
                     </button>
                   ))
                 )}
               </div>
-              {form.school && form.schoolId && (
-                <p className="text-xs text-blue-700">
-                  선택한 학교: {form.school} (ID: {form.schoolId})
-                </p>
-              )}
             </div>
 
             {/* 종목 */}

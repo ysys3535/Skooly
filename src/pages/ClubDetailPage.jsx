@@ -111,7 +111,7 @@ export default function ClubDetailPage() {
         const normalized = normalizeClub(raw, clubId);
         setClub(normalized);
       } catch (error) {
-        console.error("클럽 상세 조회 실패:", error);
+        console.error("동호회 상세 조회 실패:", error);
         setLoadError(error);
         if (error.code === "ERR_NETWORK") {
           alert("서버가 아직 준비되지 않았어요. 서버가 켜지면 다시 시도해주세요!");

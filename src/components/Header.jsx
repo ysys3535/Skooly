@@ -1,5 +1,6 @@
 // src/components/Header.jsx
 import { Link, useNavigate } from "react-router-dom";
+import logo from "../assets/skooly-logo.svg";
 
 export default function Header() {
   const navigate = useNavigate();
@@ -32,12 +33,8 @@ export default function Header() {
       <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-5">
         {/* 로고 */}
         <Link to="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white">
-            S
-          </div>
-          <span className="text-2xl font-bold md:text-2xl">
-            Skooly
-          </span>
+          <img src={logo} alt="Skooly 로고" className="h-8 w-8" />
+          <span className="text-2xl font-bold md:text-2xl">Skooly</span>
         </Link>
 
         {/* 메뉴 */}
