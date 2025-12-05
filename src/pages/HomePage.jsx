@@ -82,8 +82,6 @@ export default function HomePage() {
   const [dong, setDong] = useState(""); // 읍/면/동
 
   const [sportTypes, setSportTypes] = useState([]);
-  const [dayType, setDayType] = useState("");
-  const [timeSlot, setTimeSlot] = useState("");
 
   // 🔹 API에서 가져온 학교 목록
   const [schools, setSchools] = useState([]);
@@ -127,8 +125,6 @@ export default function HomePage() {
       sigungu,
       dong,
       sportTypes,
-      dayType,
-      timeSlot,
     };
 
     navigate("/search", { state: { filters } });
@@ -300,8 +296,8 @@ export default function HomePage() {
     <div className="min-h-screen bg-[#EFF6FF] text-gray-900">
       <main className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-4 md:py-6 lg:flex-row lg:gap-6">
         {/* 🔹 왼쪽: 검색 필터 전체 */}
-        <section className="order-2 flex-1 rounded-2xl bg-white p-4 shadow-sm lg:order-1 lg:max-w-sm">
-          <form className="flex h-full flex-col" onSubmit={handleSearch}>
+        <section className="order-2 flex-1 rounded-2xl bg-white p-4 shadow-sm lg:order-1 lg:max-w-sm lg:self-start">
+          <form className="flex flex-col gap-4" onSubmit={handleSearch}>
             <h2 className="mb-3 text-base font-semibold md:text-lg">
               학교 검색 필터
             </h2>
@@ -309,7 +305,7 @@ export default function HomePage() {
             {/* 키워드 검색 */}
             <div className="mb-4">
               <label className="mb-1 block text-xs font-medium text-black md:text-sm">
-                학교 이름 / 키워드
+                학교 이름 
               </label>
               <input
                 type="text"
@@ -400,59 +396,23 @@ export default function HomePage() {
               </div>
             </div>
 
-            {/* 이용 요일 */}
-            <div className="mb-4">
-              <label className="mb-1 block text-xs font-medium text-black md:text-sm">
-                이용 요일
-              </label>
-              <div className="flex flex-wrap gap-2 text-xs md:text-sm">
-                {[
-                  { value: "weekday", label: "평일" },
-                  { value: "weekend", label: "주말" },
-                  { value: "any", label: "무관" },
-                ].map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => setDayType(opt.value)}
-                    className={`rounded-full border px-3 py-1 ${
-                      dayType === opt.value
-                        ? "border-blue-500 bg-blue-50 text-blue-600"
-                        : "border-gray-200 hover:border-blue-500 hover:bg-blue-50"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* 이용 시간대 */}
-            <div className="mb-4">
-              <label className="mb-1 block text-xs font-medium text-black md:text-sm">
-                이용 시간대
-              </label>
-              <select
-                value={timeSlot}
-                onChange={(e) => setTimeSlot(e.target.value)}
-                className="w-full rounded-xl border border-gray-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="">전체</option>
-                <option value="morning">오전 (06:00 ~ 12:00)</option>
-                <option value="afternoon">오후 (12:00 ~ 18:00)</option>
-                <option value="evening">저녁 (18:00 ~ 22:00)</option>
-                <option value="night">야간 (22:00 이후)</option>
-              </select>
-            </div>
-
             {/* 검색 버튼 */}
-            <div className="mt-auto pt-2">
+            <div className="pt-2">
               <button
                 type="submit"
                 className="w-full rounded-xl bg-blue-600 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
               >
                 선택한 조건으로 학교 검색하기
               </button>
+            </div>
+
+            {/* 안내 배너로 여백을 자연스럽게 채움 */}
+            <div className="rounded-xl border border-blue-100 bg-blue-50 px-3 py-3 text-[12px] text-blue-800 md:text-sm">
+              <p className="font-semibold text-blue-900">검색 팁</p>
+              <ul className="mt-1 list-disc space-y-1 pl-4">
+                <li>지역을 선택하면 지도 중심이 함께 이동해 주변 시설을 확인하기 좋아요.</li>
+                <li>검색 후 결과에서 학교를 클릭하면 상세 시설 정보를 볼 수 있습니다.</li>
+              </ul>
             </div>
           </form>
         </section>

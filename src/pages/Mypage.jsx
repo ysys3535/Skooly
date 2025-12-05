@@ -1,19 +1,47 @@
 ﻿// src/pages/MyPage.jsx
 import { useState, useEffect } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useLocation } from "react-router-dom";
 import { api } from "../api/http"; // 공통 axios
 import { unwrapResult } from "../api/response"; // { result }만 뽑는 헬퍼
 import { getMyProfile, updateMyProfile } from "../api/auth"; // /members/me, /members/{id}
-import { updateClub, deleteClub } from "../api/clubs"; // 동호회 수정/삭제 API
+import { updateClub, deleteClub, createClub } from "../api/clubs"; // 동호회 생성/수정/삭제 API
 
 const CLUB_TEMPLATES_KEY = "school_fitness_club_templates";
+const getMyCreatedClubKey = (memberId) =>
+  memberId ? `my_created_club_ids_${memberId}` : "my_created_club_ids";
+
+const loadMyCreatedClubIds = (memberId) => {
+  try {
+    const raw = localStorage.getItem(getMyCreatedClubKey(memberId));
+    if (!raw) return new Set();
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed)) {
+      return new Set(parsed.map(String));
+    }
+  } catch (e) {
+    console.warn("내가 만든 클럽 ID 로드 실패:", e);
+  }
+  return new Set();
+};
+
+const saveMyCreatedClubIds = (memberId, ids) => {
+  try {
+    localStorage.setItem(
+      getMyCreatedClubKey(memberId),
+      JSON.stringify(Array.from(ids))
+    );
+  } catch (e) {
+    console.warn("내가 만든 클럽 ID 저장 실패:", e);
+  }
+};
 
 export default function MyPage() {
   const navigate = useNavigate();
+  const location = useLocation();
 
   // 로그인 여부(렌더 할지 말지)
   const [shouldRender, setShouldRender] = useState(true);
-  const [tab, setTab] = useState("profile");
+  const [tab, setTab] = useState(() => location.state?.tab || "profile");
 
   // 내 정보 상태
   const [profile, setProfile] = useState({
@@ -35,6 +63,17 @@ export default function MyPage() {
   const [isLoadingMyClubs, setIsLoadingMyClubs] = useState(true);
   const [myClubsError, setMyClubsError] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [newClub, setNewClub] = useState({
+    clubName: "",
+    representativeName: "",
+    phone: "",
+    email: "",
+    description: "",
+  });
+  const [isCreatingClub, setIsCreatingClub] = useState(false);
+  const [createClubError, setCreateClubError] = useState(null);
+  const myMemberIdForUI =
+    profile.memberId || localStorage.getItem("memberId") || null;
 
   // 어떤 동호회 카드가 펼쳐져 있는지(상세)
   const [expandedClubId, setExpandedClubId] = useState(null);
@@ -79,6 +118,14 @@ export default function MyPage() {
   const handleProfileChange = (e) => {
     const { name, value } = e.target;
     setProfile((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const displayGender = (value) => {
+    const v = (value || "").toString().toLowerCase();
+    if (v === "female") return "여";
+    if (v === "male") return "남";
+    if (v === "여" || v === "남") return value;
+    return value || "";
   };
 
   // (공통) 클럽 응답을 화면용 상태로 정리
@@ -146,6 +193,13 @@ export default function MyPage() {
     fetchProfile();
   }, [shouldRender]);
 
+  // URL state로 전달된 탭 이동 지원 (예: /mypage, { state: { tab: "myClubs" } })
+  useEffect(() => {
+    if (location.state?.tab) {
+      setTab(location.state.tab);
+    }
+  }, [location.state?.tab]);
+
   // 2) 내가 만든 동호회 목록 불러오기
   useEffect(() => {
     if (!shouldRender) return;
@@ -154,7 +208,7 @@ export default function MyPage() {
       profile.memberId || Number(localStorage.getItem("memberId"));
 
     if (!myMemberId) return;
-
+    const createdIds = loadMyCreatedClubIds(myMemberId);
     const fetchMyClubs = async () => {
       setIsLoadingMyClubs(true);
       setMyClubsError(null);
@@ -169,11 +223,12 @@ export default function MyPage() {
           .map((item, idx) => normalizeMyClub(item, idx))
           .filter(Boolean);
 
-        // 서버에서 ownerId가 내 memberId인 것만 필터
-        const mine = normalized.filter(
-          (club) =>
-            club.ownerId && String(club.ownerId) === String(myMemberId)
-        );
+        // 위에서 등록한 기본정보(기록된 clubId)만 노출
+        const mine = normalized.filter((club) => {
+          const cid =
+            club.id || club.clubId || club.club_id || club.clubid || null;
+          return cid && createdIds.has(String(cid));
+        });
 
         // 로컬 템플릿과 병합
         const localTemplates = loadLocalClubTemplates();
@@ -265,6 +320,11 @@ export default function MyPage() {
           : club
       )
     );
+  };
+
+  const handleNewClubChange = (e) => {
+    const { name, value } = e.target;
+    setNewClub((prev) => ({ ...prev, [name]: value }));
   };
 
   // 4) 동호회 정보 수정 (PATCH /club/update/{clubId})
@@ -373,6 +433,72 @@ export default function MyPage() {
       alert("동호회 삭제 중 오류가 발생했습니다. 다시 시도해 주세요.");
     } finally {
       setDeletingId(null);
+    }
+  };
+
+  const handleCreateNewClub = async () => {
+    if (!newClub.clubName || !newClub.representativeName || !newClub.phone || !newClub.description) {
+      alert("동호회 이름, 대표자 이름, 대표 전화번호, 소개는 필수입니다.");
+      return;
+    }
+
+    const phoneRegex = /^010-\d{4}-\d{4}$/;
+    if (!phoneRegex.test(newClub.phone)) {
+      alert("전화번호는 010-1234-5678 형식으로 입력해 주세요.");
+      return;
+    }
+
+    const payload = {
+      clubName: newClub.clubName,
+      captainName: newClub.representativeName,
+      phone: newClub.phone,
+      email: newClub.email || null,
+      description: newClub.description,
+    };
+
+    setIsCreatingClub(true);
+    setCreateClubError(null);
+    try {
+      const created = await createClub(payload);
+      const normalized = normalizeMyClub(created, created?.id || created?.clubId);
+
+      setMyClubs((prev) => {
+        const next = normalized ? [normalized, ...prev] : prev;
+        return next;
+      });
+
+      // 내가 만든 클럽 ID 기록
+      try {
+        const myId = profile.memberId || localStorage.getItem("memberId");
+        const ids = loadMyCreatedClubIds(myId);
+        const cid =
+          normalized?.id ||
+          normalized?.clubId ||
+          normalized?.club_id ||
+          normalized?.clubid;
+        if (cid != null) {
+          ids.add(String(cid));
+          saveMyCreatedClubIds(myId, ids);
+        }
+      } catch (e) {
+        console.warn("내가 만든 클럽 ID 저장 실패:", e);
+      }
+
+      setNewClub({
+        clubName: "",
+        representativeName: "",
+        phone: "",
+        email: "",
+        description: "",
+      });
+
+      alert("동호회 기본 정보가 등록되었습니다.");
+    } catch (error) {
+      console.error("동호회 기본 정보 등록 실패:", error);
+      setCreateClubError(error);
+      alert("동호회 기본 정보 등록 중 오류가 발생했습니다. 다시 시도해 주세요.");
+    } finally {
+      setIsCreatingClub(false);
     }
   };
 
@@ -490,10 +616,11 @@ export default function MyPage() {
                 <input
                   type="text"
                   name="gender"
-                  value={profile.gender}
+                  value={displayGender(profile.gender)}
                   onChange={handleProfileChange}
                   disabled={!isEditingProfile}
                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm disabled:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#5131C3]/40"
+                  placeholder="예) 남 / 여"
                 />
               </div>
 
@@ -560,6 +687,96 @@ export default function MyPage() {
               </h2>
             </div>
 
+            {/* 동호회 기본정보 등록 폼 */}
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm font-semibold text-slate-900">동호회 기본 정보 등록</p>
+              <p className="mt-1 text-xs text-slate-500">
+                아래 정보를 저장하면 동호회 등록 페이지에서 자동으로 불러옵니다.
+              </p>
+              <div className="mt-3 grid gap-3 md:grid-cols-2">
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                    동호회 이름 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="clubName"
+                    value={newClub.clubName}
+                    onChange={handleNewClubChange}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    placeholder="예) 스쿨리 농구 동호회"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                    대표자 이름 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    name="representativeName"
+                    value={newClub.representativeName}
+                    onChange={handleNewClubChange}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    placeholder="대표자 성함"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                    대표 전화번호 <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="tel"
+                    name="phone"
+                    value={newClub.phone}
+                    onChange={handleNewClubChange}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    placeholder="010-1234-5678"
+                  />
+                </div>
+                <div>
+                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                    이메일
+                  </label>
+                  <input
+                    type="email"
+                    name="email"
+                    value={newClub.email}
+                    onChange={handleNewClubChange}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    placeholder="example@email.com"
+                  />
+                </div>
+                <div className="md:col-span-2">
+                  <label className="mb-1 block text-xs font-medium text-slate-600">
+                    동호회 소개 <span className="text-red-500">*</span>
+                  </label>
+                  <textarea
+                    name="description"
+                    value={newClub.description}
+                    onChange={handleNewClubChange}
+                    rows={3}
+                    className="w-full rounded-xl border border-slate-200 px-3 py-2 text-sm outline-none resize-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                    placeholder="클럽 활동 내용과 분위기를 소개해 주세요."
+                  />
+                </div>
+              </div>
+              {createClubError && (
+                <p className="mt-2 text-xs text-red-500">
+                  동호회 기본 정보를 등록하는 중 문제가 발생했습니다. 다시 시도해 주세요.
+                </p>
+              )}
+              <div className="mt-3 flex justify-end">
+                <button
+                  type="button"
+                  onClick={handleCreateNewClub}
+                  disabled={isCreatingClub}
+                  className="rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {isCreatingClub ? "저장 중..." : "기본 정보 등록"}
+                </button>
+              </div>
+            </div>
+
             {myClubsError && (
               <p className="text-xs text-red-500">
                 동호회 목록을 불러오는 중 문제가 발생했습니다. 다시 시도해
@@ -587,6 +804,10 @@ export default function MyPage() {
                 {myClubs.map((club) => {
                   const isExpanded = expandedClubId === club.id;
                   const isEditing = editingClubId === club.id;
+                  const isMyClub =
+                    myMemberIdForUI &&
+                    club.ownerId &&
+                    String(club.ownerId) === String(myMemberIdForUI);
 
                   return (
                     <div
@@ -620,49 +841,51 @@ export default function MyPage() {
                       {/* 펼쳐진 영역: 상세 + 수정 */}
                       {isExpanded && (
                         <div className="mt-3 border-t border-slate-200 pt-3 text-sm">
-                          <div className="mb-3 flex items-center justify-between">
-                            {isEditing ? (
-                              <div className="flex flex-wrap gap-2">
-                                <button
-                                  onClick={() => setEditingClubId(null)}
-                                  className="rounded-full border border-slate-200 px-3 py-1 text-xs"
-                                >
-                                  취소
-                                </button>
-                                <button
-                                  onClick={() => handleSaveMyClub(club.id)}
-                                  className="rounded-full bg-[#F6A623] px-3 py-1 text-xs text-white disabled:opacity-60"
-                                  disabled={deletingId === club.id}
-                                >
-                                  저장
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteMyClub(club.id)}
-                                  className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
-                                  disabled={deletingId === club.id}
-                                >
-                                  {deletingId === club.id ? "삭제 중..." : "삭제"}
-                                </button>
-                              </div>
-                            ) : (
-                              <div className="flex gap-2">
-                                <button
-                                  onClick={() => setEditingClubId(club.id)}
-                                  className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-700"
-                                  disabled={deletingId === club.id}
-                                >
-                                  수정
-                                </button>
-                                <button
-                                  onClick={() => handleDeleteMyClub(club.id)}
-                                  className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
-                                  disabled={deletingId === club.id}
-                                >
-                                  {deletingId === club.id ? "삭제 중..." : "삭제"}
-                                </button>
-                              </div>
-                            )}
-                          </div>
+                          {isMyClub && (
+                            <div className="mb-3 flex items-center justify-between">
+                              {isEditing ? (
+                                <div className="flex flex-wrap gap-2">
+                                  <button
+                                    onClick={() => setEditingClubId(null)}
+                                    className="rounded-full border border-slate-200 px-3 py-1 text-xs"
+                                  >
+                                    취소
+                                  </button>
+                                  <button
+                                    onClick={() => handleSaveMyClub(club.id)}
+                                    className="rounded-full bg-[#F6A623] px-3 py-1 text-xs text-white disabled:opacity-60"
+                                    disabled={deletingId === club.id}
+                                  >
+                                    저장
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteMyClub(club.id)}
+                                    className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                    disabled={deletingId === club.id}
+                                  >
+                                    {deletingId === club.id ? "삭제 중..." : "삭제"}
+                                  </button>
+                                </div>
+                              ) : (
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => setEditingClubId(club.id)}
+                                    className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-700"
+                                    disabled={deletingId === club.id}
+                                  >
+                                    수정
+                                  </button>
+                                  <button
+                                    onClick={() => handleDeleteMyClub(club.id)}
+                                    className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                    disabled={deletingId === club.id}
+                                  >
+                                    {deletingId === club.id ? "삭제 중..." : "삭제"}
+                                  </button>
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           <div className="space-y-3 text-xs md:text-sm">
                             {/* 동호회 이름 */}
@@ -679,153 +902,6 @@ export default function MyPage() {
                                 }
                                 disabled={!isEditing}
                                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                              />
-                            </div>
-
-                            {/* 학교 이름 */}
-                            <div>
-                              <label className="mb-1 block text-xs font-medium text-slate-500">
-                                학교 이름
-                              </label>
-                              <input
-                                type="text"
-                                name="school"
-                                value={club.school}
-                                onChange={(e) =>
-                                  handleMyClubChange(e, club.id)
-                                }
-                                disabled={!isEditing}
-                                className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                placeholder="예) ○○고등학교 / ○○중학교"
-                              />
-                            </div>
-
-                            {/* 활동 종목 / 활동 강도 */}
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <div>
-                                <label className="mb-1 block text-xs font-medium text-slate-500">
-                                  활동 종목
-                                </label>
-                                <input
-                                  type="text"
-                                  name="sport"
-                                  value={club.sport}
-                                  onChange={(e) =>
-                                    handleMyClubChange(e, club.id)
-                                  }
-                                  disabled={!isEditing}
-                                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                />
-                              </div>
-                              <div>
-                                <label className="mb-1 block text-xs font-medium text-slate-500">
-                                  활동 강도
-                                </label>
-                                <select
-                                  name="level"
-                                  value={club.level || ""}
-                                  onChange={(e) =>
-                                    handleMyClubChange(e, club.id)
-                                  }
-                                  disabled={!isEditing}
-                                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                >
-                                  <option value="">선택해 주세요</option>
-                                  <option value="입문">입문</option>
-                                  <option value="초급">초급</option>
-                                  <option value="중급">중급</option>
-                                  <option value="고급">고급</option>
-                                </select>
-                              </div>
-                            </div>
-
-                            {/* 활동 요일 / 시간 */}
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <div>
-                                <label className="mb-1 block text-xs font-medium text-slate-500">
-                                  활동 요일
-                                </label>
-                                <input
-                                  type="text"
-                                  name="day"
-                                  value={club.day}
-                                  onChange={(e) =>
-                                    handleMyClubChange(e, club.id)
-                                  }
-                                  disabled={!isEditing}
-                                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                  placeholder="예) 월, 수, 금"
-                                />
-                              </div>
-                              <div>
-                                <label className="mb-1 block text-xs font-medium text-slate-500">
-                                  활동 시간
-                                </label>
-                                <input
-                                  type="text"
-                                  name="time"
-                                  value={club.time}
-                                  onChange={(e) =>
-                                    handleMyClubChange(e, club.id)
-                                  }
-                                  disabled={!isEditing}
-                                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                  placeholder="예) 18:00 ~ 21:00"
-                                />
-                              </div>
-                            </div>
-
-                            {/* 연령대 / 예상 회비 */}
-                            <div className="grid gap-3 md:grid-cols-2">
-                              <div>
-                                <label className="mb-1 block text-xs font-medium text-slate-500">
-                                  연령대
-                                </label>
-                                <input
-                                  type="text"
-                                  name="ageRange"
-                                  value={club.ageRange || ""}
-                                  onChange={(e) =>
-                                    handleMyClubChange(e, club.id)
-                                  }
-                                  disabled={!isEditing}
-                                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                  placeholder="예) 20대 ~ 30대"
-                                />
-                              </div>
-                              <div>
-                                <label className="mb-1 block text-xs font-medium text-slate-500">
-                                  예상 회비
-                                </label>
-                                <input
-                                  type="text"
-                                  name="fee"
-                                  value={club.fee || ""}
-                                  onChange={(e) =>
-                                    handleMyClubChange(e, club.id)
-                                  }
-                                  disabled={!isEditing}
-                                  className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                  placeholder="예) 월 30,000원 / 연 10만 원"
-                                />
-                              </div>
-                            </div>
-
-                            {/* 소개글 */}
-                            <div>
-                              <label className="mb-1 block text-xs font-medium text-slate-500">
-                                소개글
-                              </label>
-                              <textarea
-                                name="description"
-                                value={club.description || ""}
-                                onChange={(e) =>
-                                  handleMyClubChange(e, club.id)
-                                }
-                                disabled={!isEditing}
-                                rows={3}
-                                className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                placeholder="동호회 분위기, 모집 대상, 활동 내용을 적어 주세요."
                               />
                             </div>
 
@@ -847,7 +923,7 @@ export default function MyPage() {
                               />
                             </div>
 
-                            {/* 연락처 */}
+                            {/* 연락처 + 소개글 */}
                             <div className="grid gap-3 md:grid-cols-2">
                               <div>
                                 <label className="mb-1 block text-xs font-medium text-slate-500">
@@ -879,6 +955,22 @@ export default function MyPage() {
                                   disabled={!isEditing}
                                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
                                   placeholder="example@email.com"
+                                />
+                              </div>
+                              <div className="md:col-span-2">
+                                <label className="mb-1 block text-xs font-medium text-slate-500">
+                                  소개글
+                                </label>
+                                <textarea
+                                  name="description"
+                                  value={club.description || ""}
+                                  onChange={(e) =>
+                                    handleMyClubChange(e, club.id)
+                                  }
+                                  disabled={!isEditing}
+                                  rows={3}
+                                  className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
+                                  placeholder="동호회 분위기, 모집 대상, 활동 내용을 적어 주세요."
                                 />
                               </div>
                             </div>

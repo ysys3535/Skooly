@@ -169,16 +169,6 @@ export default function ResultsPage() {
                   종목: {filters.sportTypes.join(", ")}
                 </span>
               )}
-              {filters.dayType && (
-                <span className="rounded-full bg-gray-100 px-3 py-1">
-                  요일: {filters.dayType}
-                </span>
-              )}
-              {filters.timeSlot && (
-                <span className="rounded-full bg-gray-100 px-3 py-1">
-                  시간대: {filters.timeSlot}
-                </span>
-              )}
               {filters.userType && (
                 <span className="rounded-full bg-gray-100 px-3 py-1">
                   이용 주체: {filters.userType}

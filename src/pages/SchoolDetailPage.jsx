@@ -419,20 +419,12 @@ export default function SchoolDetailPage() {
                   <p className="mt-1">운영 시간 정보 없음</p>
                 )}
               </div>
-              <div className="rounded-xl bg-gray-50 px-3 py-2">
+              <div className="rounded-xl bg-gray-50 px-3 py-2 md:col-span-2">
                 <p className="text-[11px] font-semibold text-gray-600 md:text-xs">
                   예약 방법
                 </p>
                 <p className="mt-1">
-                  {school?.howToReserve || "예약 방법 정보 없음"}
-                </p>
-              </div>
-              <div className="rounded-xl bg-gray-50 px-3 py-2">
-                <p className="text-[11px] font-semibold text-gray-600 md:text-xs">
-                  비용
-                </p>
-                <p className="mt-1">
-                  {school?.cost != null ? `${school.cost}` : "비용 정보 없음"}
+                  {school?.howToReserve || "학교 전화번호로 문의해 주세요."}
                 </p>
               </div>
               <div className="rounded-xl bg-gray-50 px-3 py-2 md:col-span-2">

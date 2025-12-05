@@ -26,6 +26,12 @@ export const fetchClubs = async () => {
   return unwrapResult(res); // { clubs: [...] }
 };
 
+// 내 동호회 목록 조회 (GET /members/me/clubs)
+export const fetchMyClubs = async () => {
+  const res = await api.get("/members/me/clubs");
+  return unwrapResult(res);
+};
+
 // 학교에 동호회 등록 (POST /school/club)
 // 필수 필드: schoolId, clubId, activeDays, activeTime, ageRange, activityLevel, fee, description, sportNames[]
 export const enrollClubToSchool = async (payload) => {

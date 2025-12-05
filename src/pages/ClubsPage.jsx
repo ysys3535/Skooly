@@ -1,38 +1,56 @@
 // src/pages/ClubsPage.jsx
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { getClubs } from "../api/clubs";
+import { findSchoolClubs } from "../api/schoolClubs";
 
 export default function ClubsPage() {
   const [clubs, setClubs] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
+  const [filters, setFilters] = useState({
+    schoolName: "",
+    sportName: "",
+  });
 
-  // ✅ 최초 1번: 동호회 목록 불러오기
-  useEffect(() => {
-    const fetchClubs = async () => {
-      setIsLoading(true);
-      setLoadError(null);
+  const fetchClubs = async () => {
+    setIsLoading(true);
+    setLoadError(null);
 
-      try {
-        // /schoolClub/find 호출 → { pageInfo, clubs }
-        const result = await getClubs();
-        setClubs(result.clubs || []);
-      } catch (error) {
-        console.error("클럽 목록 불러오기 실패:", error);
-        setLoadError(error);
+    try {
+      const result = await findSchoolClubs(filters, 1); // page=1
+      const list =
+        result?.schoolClubs ||
+        result?.content ||
+        result?.clubs ||
+        (Array.isArray(result) ? result : []) ||
+        [];
+      setClubs(Array.isArray(list) ? list : []);
+    } catch (error) {
+      console.error("동호회 목록 불러오기 실패:", error);
+      setLoadError(error);
 
-        // 서버 아직 없을 때 친절 메시지
-        if (error.code === "ERR_NETWORK") {
-          alert("서버가 아직 준비되지 않았어요. 서버가 켜지면 다시 시도해주세요!");
-        }
-      } finally {
-        setIsLoading(false);
+      if (error.code === "ERR_NETWORK") {
+        alert("서버가 아직 준비되지 않았어요. 서버가 켜지면 다시 시도해 주세요!");
       }
-    };
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
+  useEffect(() => {
     fetchClubs();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const handleFilterChange = (e) => {
+    const { name, value } = e.target;
+    setFilters((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleSearch = (e) => {
+    e.preventDefault();
+    fetchClubs();
+  };
 
   return (
     <div className="bg-[#EFF6FF] min-h-screen bg-slate-50">
@@ -42,11 +60,10 @@ export default function ClubsPage() {
             <div>
               <h1 className="text-lg font-semibold md:text-xl">동호회 둘러보기</h1>
               <p className="mt-1 text-xs text-gray-500 md:text-sm">
-                학교 / 종목 / 지역 기준으로 필터링해 원하는 팀을 찾을 수 있어요.
+                학교 / 종목 / 키워드로 필터링해 원하는 동호회를 찾아보세요.
               </p>
             </div>
 
-            {/* 🔹 동호회 등록 버튼 */}
             <Link
               to="/clubs/new"
               className="rounded-full bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 md:text-sm"
@@ -58,25 +75,40 @@ export default function ClubsPage() {
       </header>
 
       <main className="mx-auto max-w-5xl px-4 py-4 md:py-6">
-        {/* 필터 영역 (지금은 UI만 있고 실제 필터 로직은 나중에 붙여도 됨) */}
-        <div className="mb-4 grid gap-2 md:grid-cols-3">
+        {/* 검색/필터 */}
+        <form
+          onSubmit={handleSearch}
+          className="mb-4 grid gap-2 md:grid-cols-[2fr_1fr_auto]"
+        >
           <input
+            name="schoolName"
+            value={filters.schoolName}
+            onChange={handleFilterChange}
             className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none ring-blue-100 focus:border-blue-500 focus:ring-2"
-            placeholder="학교 또는 동호회 이름 검색"
+            placeholder="학교 이름 또는 지역을 입력해 검색해 주세요"
           />
-          <select className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none ring-blue-100 focus:border-blue-500 focus:ring-2">
-            <option>종목 전체</option>
-            <option>농구</option>
-            <option>풋살</option>
-            <option>배드민턴</option>
+          <select
+            name="sportName"
+            value={filters.sportName}
+            onChange={handleFilterChange}
+            className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none ring-blue-100 focus:border-blue-500 focus:ring-2"
+          >
+            <option value="">종목 전체</option>
+            <option value="농구">농구</option>
+            <option value="축구">축구</option>
+            <option value="풋살">풋살</option>
+            <option value="배드민턴">배드민턴</option>
+            <option value="탁구">탁구</option>
+            <option value="배구">배구</option>
+            <option value="기타">기타</option>
           </select>
-          <select className="rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none ring-blue-100 focus:border-blue-500 focus:ring-2">
-            <option>지역 전체</option>
-            <option>서울</option>
-            <option>경기</option>
-            <option>부산</option>
-          </select>
-        </div>
+          <button
+            type="submit"
+            className="self-stretch rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 md:px-3 md:py-2 md:self-center"
+          >
+            검색
+          </button>
+        </form>
 
         {/* 로딩 상태 */}
         {isLoading && (
@@ -93,14 +125,14 @@ export default function ClubsPage() {
           </div>
         )}
 
-        {/* 에러 상태 (서버 준비 전에는 위에서 alert로도 알려줌) */}
+        {/* 에러 */}
         {!isLoading && loadError && (
           <p className="text-center text-sm text-red-500 mt-4">
             동호회 목록을 불러오는 중 문제가 발생했습니다.
           </p>
         )}
 
-        {/* 리스트 */}
+        {/* 결과 리스트 */}
         {!isLoading && !loadError && (
           <div className="space-y-3">
             {clubs.length === 0 ? (
@@ -109,7 +141,6 @@ export default function ClubsPage() {
               </p>
             ) : (
               clubs.map((club, idx) => {
-                // 백엔드 구조에 최대한 유연하게 대응
                 const id =
                   club.schoolClubId ||
                   club.id ||
@@ -123,8 +154,18 @@ export default function ClubsPage() {
                 const sport = Array.isArray(club.sportNames)
                   ? club.sportNames.join(", ")
                   : club.sportName || club.sport || "종목 미정";
-                const region = club.region || club.cityName || "";
-                const time = club.activeTime || club.time || "";
+                const region =
+                  club.region ||
+                  club.cityName ||
+                  club.districtName ||
+                  club.sido ||
+                  "";
+                const time =
+                  club.activeTime ||
+                  club.time ||
+                  club.activeDays ||
+                  club.activityTime ||
+                  "";
 
                 return (
                   <Link
