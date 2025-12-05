@@ -2,7 +2,7 @@
 import axios from "axios";
 
 export const BASE_URL =
-  import.meta.env.VITE_API_URL || "http://52.79.119.232:8080";
+  import.meta.env.VITE_API_URL || "https://theservrforthechuns.com";
 
 const http = axios.create({
   baseURL: BASE_URL,

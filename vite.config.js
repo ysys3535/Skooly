@@ -6,7 +6,7 @@ export default defineConfig({
   server: {
     proxy: {
       "/api": {
-        target: "http://52.79.119.232:8080/", // 백엔드 주소
+        target: "https://theservrforthechuns.com/", // 백엔??주소
         changeOrigin: true,
       },
     },
