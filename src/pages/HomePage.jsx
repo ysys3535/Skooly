@@ -58,6 +58,7 @@ const normalizeSchool = (raw, fallbackId) => {
     cost: raw.cost ?? null,
     howToReserve: raw.howToReserve || "",
     schoolHomepageUrl: raw.schoolHomepageUrl || "",
+    eduOfficeUrl: raw.eduOfficeUrl || raw.eduOfficialUrl || "",
     eduOfficialUrl: raw.eduOfficialUrl || "",
     localPortalUrl: raw.localPortalUrl || "",
     schoolTel: raw.schoolTel || "",

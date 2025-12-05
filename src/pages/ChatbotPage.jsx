@@ -1,4 +1,4 @@
-// src/pages/ChatbotPage.jsx
+﻿// src/pages/ChatbotPage.jsx
 import { useState, useEffect, useRef } from "react";
 
 // ✅ 챗봇 서버 HTTP / WS 주소 설정
@@ -10,13 +10,7 @@ const CHATBOT_HTTP_BASE_URL = (
 const CHATBOT_WS_BASE_URL = CHATBOT_HTTP_BASE_URL.replace(/^http/, "ws");
 
 export default function ChatbotPage() {
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      sender: "bot",
-      text: "안녕하세요! 학교 체육시설 예약 안내 챗봇입니다 🙂\n원하시는 지역, 종목, 이용 시간대를 알려주시면 조건에 맞는 학교를 찾는 데 도움을 드릴게요!",
-    },
-  ]);
+  const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
 
@@ -312,3 +306,4 @@ export default function ChatbotPage() {
     </div>
   );
 }
+

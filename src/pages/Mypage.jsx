@@ -1,32 +1,21 @@
-// src/pages/MyPage.jsx
+﻿// src/pages/MyPage.jsx
 import { useState, useEffect } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { api } from "../api/http"; // 공통 axios
 import { unwrapResult } from "../api/response"; // { result }만 뽑는 헬퍼
 import { getMyProfile, updateMyProfile } from "../api/auth"; // /members/me, /members/{id}
+import { updateClub, deleteClub } from "../api/clubs"; // 동호회 수정/삭제 API
+
+const CLUB_TEMPLATES_KEY = "school_fitness_club_templates";
 
 export default function MyPage() {
   const navigate = useNavigate();
 
-  // 로그인 체크
+  // 로그인 여부(렌더 할지 말지)
   const [shouldRender, setShouldRender] = useState(true);
-
-  useEffect(() => {
-    const memberId = localStorage.getItem("memberId");
-    const username = localStorage.getItem("username");
-
-    if (!memberId && !username) {
-      alert("로그인이 필요한 서비스입니다.");
-      setShouldRender(false);
-      navigate("/login");
-    } else {
-      setShouldRender(true);
-    }
-  }, [navigate]);
-
   const [tab, setTab] = useState("profile");
 
-  // ✅ 내 정보 상태
+  // 내 정보 상태
   const [profile, setProfile] = useState({
     memberId: null,
     username: "",
@@ -41,28 +30,63 @@ export default function MyPage() {
   const [isLoadingProfile, setIsLoadingProfile] = useState(true);
   const [profileError, setProfileError] = useState(null);
 
-  // ✅ 내가 만든 동호회 목록
+  // 내가 만든 동호회 목록
   const [myClubs, setMyClubs] = useState([]);
   const [isLoadingMyClubs, setIsLoadingMyClubs] = useState(true);
   const [myClubsError, setMyClubsError] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
-  // 어떤 동호회 카드가 열려 있는지 (토글)
+  // 어떤 동호회 카드가 펼쳐져 있는지(상세)
   const [expandedClubId, setExpandedClubId] = useState(null);
   // 어떤 동호회가 수정 모드인지
   const [editingClubId, setEditingClubId] = useState(null);
+
+  // 로컬 템플릿 불러오기
+  const loadLocalClubTemplates = () => {
+    try {
+      const stored = localStorage.getItem(CLUB_TEMPLATES_KEY);
+      if (!stored) return [];
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      console.error("로컬 클럽 템플릿 로드 실패:", error);
+      return [];
+    }
+  };
+
+  const saveLocalClubTemplates = (templates) => {
+    try {
+      localStorage.setItem(CLUB_TEMPLATES_KEY, JSON.stringify(templates));
+    } catch (error) {
+      console.error("로컬 클럽 템플릿 저장 실패:", error);
+    }
+  };
+
+  // 로그인 체크
+  useEffect(() => {
+    const memberId = localStorage.getItem("memberId");
+    const username = localStorage.getItem("username");
+
+    if (!memberId && !username) {
+      alert("로그인이 필요한 서비스입니다.");
+      setShouldRender(false);
+      navigate("/login");
+    } else {
+      setShouldRender(true);
+    }
+  }, [navigate]);
 
   const handleProfileChange = (e) => {
     const { name, value } = e.target;
     setProfile((prev) => ({ ...prev, [name]: value }));
   };
 
-  // ✅ (공통) 동호회 응답 → 화면용 형태로 정리
+  // (공통) 클럽 응답을 화면용 상태로 정리
   const normalizeMyClub = (raw, idx) => {
     if (!raw) return null;
     return {
       id: raw.id || raw.clubId || idx,
-      // 백엔드 필드 이름을 다양하게 대응
-      clubName: raw.clubName || raw.name || "이름 없는 동호회",
+      clubName: raw.clubName || raw.name || "이름 없는 클럽",
       school: raw.school || raw.schoolName || "",
       sport:
         raw.sport ||
@@ -75,20 +99,22 @@ export default function MyPage() {
       level: raw.level || raw.intensity || "",
       fee: raw.fee || raw.feeInfo || "",
       description: raw.description || raw.introduction || "",
-      representativeName: raw.representativeName || raw.leaderName || "",
+      representativeName:
+        raw.representativeName ||
+        raw.captinName ||
+        raw.captainName ||
+        raw.captin_name ||
+        raw.captain_name ||
+        raw.leaderName ||
+        "",
       phone: raw.phone || raw.leaderPhone || "",
       email: raw.email || raw.leaderEmail || "",
-      // 클럽 작성자 식별용 (memberId/ownerId 등)
       ownerId:
-        raw.ownerId ||
-        raw.memberId ||
-        raw.creatorId ||
-        raw.leaderId ||
-        null,
+        raw.ownerId || raw.memberId || raw.creatorId || raw.leaderId || null,
     };
   };
 
-  // ✅ 내 정보 불러오기 (GET /members/me)
+  // 1) 내 정보 불러오기 (GET /members/me)
   useEffect(() => {
     if (!shouldRender) return;
 
@@ -120,11 +146,10 @@ export default function MyPage() {
     fetchProfile();
   }, [shouldRender]);
 
-  // ✅ 내가 만든 동호회 목록 불러오기
+  // 2) 내가 만든 동호회 목록 불러오기
   useEffect(() => {
     if (!shouldRender) return;
 
-    // 내 memberId가 아직 없으면 기다렸다가 다시 실행
     const myMemberId =
       profile.memberId || Number(localStorage.getItem("memberId"));
 
@@ -135,23 +160,50 @@ export default function MyPage() {
       setMyClubsError(null);
 
       try {
-        // 스펙: GET /club/find → ClubGetRes{ clubs: ClubItem[] }
+        // 스펙: GET /club/find -> ApiResponse<{ clubs: ClubItem[] }>
         const res = await api.get("/club/find");
-        const data = unwrapResult(res); // { clubs: [...] } 라고 가정
+        const data = unwrapResult(res); // { clubs: [...] }
         const clubs = data.clubs || [];
 
         const normalized = clubs
           .map((item, idx) => normalizeMyClub(item, idx))
           .filter(Boolean);
 
-        // 현재 로그인한 회원이 만든 클럽만 필터
+        // 서버에서 ownerId가 내 memberId인 것만 필터
         const mine = normalized.filter(
           (club) =>
-            club.ownerId &&
-            String(club.ownerId) === String(myMemberId)
+            club.ownerId && String(club.ownerId) === String(myMemberId)
         );
 
-        setMyClubs(mine);
+        // 로컬 템플릿과 병합
+        const localTemplates = loadLocalClubTemplates();
+        const localMine = localTemplates
+          .filter(
+            (tpl) =>
+              !tpl.ownerId || String(tpl.ownerId) === String(myMemberId)
+          )
+          .map((tpl, idx) => normalizeMyClub(tpl, `local-${idx}`))
+          .filter(Boolean);
+
+        const merged = [...mine];
+        const existingIds = new Set(merged.map((c) => String(c.id)));
+
+        // localMine에 같은 id가 있으면 최신값으로 덮어쓰기, 없으면 추가
+        localMine.forEach((club, idx) => {
+          const id =
+            club.id ?? club.clubId ?? club.club_id ?? club.clubid ?? `local-${idx}`;
+          const key = String(id);
+          const payload = { ...club, id };
+          const existIdx = merged.findIndex((c) => String(c.id) === key);
+          if (existIdx >= 0) {
+            merged[existIdx] = { ...merged[existIdx], ...payload };
+          } else if (!existingIds.has(key)) {
+            merged.push(payload);
+          }
+          existingIds.add(key);
+        });
+
+        setMyClubs(merged);
       } catch (error) {
         console.error("내가 만든 동호회 목록 불러오기 실패:", error);
         setMyClubsError(error);
@@ -164,10 +216,10 @@ export default function MyPage() {
     fetchMyClubs();
   }, [shouldRender, profile.memberId]);
 
-  // ✅ 프로필 저장 (PATCH /members/{memberId})
+  // 3) 내 프로필 수정 (PATCH /members/{memberId})
   const handleSaveProfile = async () => {
     if (!profile.memberId) {
-      alert("회원 ID를 찾을 수 없어요. 다시 로그인 후 시도해 주세요.");
+      alert("회원 ID를 찾을 수 없습니다. 다시 로그인해 주세요.");
       return;
     }
 
@@ -192,15 +244,15 @@ export default function MyPage() {
         status: updated.status ?? prev.status,
       }));
 
-      alert("내 정보가 저장되었습니다.");
+      alert("내 정보가 수정되었습니다.");
       setIsEditingProfile(false);
     } catch (error) {
       console.error("프로필 수정 실패:", error);
-      alert("내 정보 저장 중 오류가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      alert("내 정보 수정 중 오류가 발생했습니다. 다시 시도해 주세요.");
     }
   };
 
-  // 동호회 정보 변경 핸들러 (id 기준으로 특정 동호회만 수정)
+  // 동호회 카드 입력값 변경
   const handleMyClubChange = (e, id) => {
     const { name, value } = e.target;
     setMyClubs((prev) =>
@@ -215,36 +267,116 @@ export default function MyPage() {
     );
   };
 
-  // ✅ 동호회 정보 저장 (PATCH /club/update/{clubId})
+  // 4) 동호회 정보 수정 (PATCH /club/update/{clubId})
   const handleSaveMyClub = async (id) => {
     const target = myClubs.find((c) => c.id === id);
     if (!target) return;
 
+    const clubId = Number(id);
+    if (!clubId || Number.isNaN(clubId)) {
+      alert("클럽 ID를 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.");
+      return;
+    }
+
     try {
-      const body = {
-        clubName: target.clubName,
-        school: target.school,
-        sport: target.sport,
-        day: target.day,
-        time: target.time,
-        ageRange: target.ageRange,
-        level: target.level,
-        fee: target.fee,
-        description: target.description,
-        representativeName: target.representativeName,
+      // 백엔드 DTO에 맞춰서 작성 (필드명은 서버 스펙에 따라 조정)
+      const payload = {
+        name: target.clubName,
+        captin_name: target.representativeName,
+        captain_name: target.representativeName,
         phone: target.phone,
         email: target.email,
+        description: target.description,
       };
 
-      await api.patch(`/club/update/${id}`, body);
-      alert("동호회 정보가 저장되었습니다.");
+      const updated = await updateClub(clubId, payload);
+
+      // 로컬 템플릿도 업데이트해서 새로고침 시 유지
+      const existingTemplates = loadLocalClubTemplates();
+      const filtered = existingTemplates.filter((c) => {
+        const cid = c.id ?? c.clubId ?? c.club_id ?? c.clubid;
+        return String(cid) !== String(clubId);
+      });
+      filtered.push({
+        id: clubId,
+        clubId,
+        clubName: updated?.name || target.clubName,
+        representativeName:
+          updated?.captinName ||
+          updated?.captainName ||
+          updated?.captain_name ||
+          updated?.captin_name ||
+          target.representativeName,
+        phone: updated?.phone || target.phone,
+        email: updated?.email || target.email,
+        description: updated?.description || target.description,
+        ownerId: profile.memberId || localStorage.getItem("memberId"),
+      });
+      saveLocalClubTemplates(filtered);
+
+      setMyClubs((prev) =>
+        prev.map((club) =>
+          club.id === id
+            ? {
+                ...club,
+                clubName: updated?.name || target.clubName,
+                representativeName:
+                  updated?.captinName ||
+                  updated?.captainName ||
+                  updated?.captain_name ||
+                  updated?.captin_name ||
+                  target.representativeName,
+                phone: updated?.phone || target.phone,
+                email: updated?.email || target.email,
+                description: updated?.description || target.description,
+              }
+            : club
+        )
+      );
+
+      alert("동호회 정보가 수정되었습니다.");
       setEditingClubId(null);
     } catch (error) {
-      console.error("동호회 정보 저장 실패:", error);
-      alert("동호회 정보 저장 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.");
+      console.error("동호회 정보 수정 실패:", error);
+      alert("동호회 정보 수정 중 문제가 발생했습니다. 다시 시도해 주세요.");
     }
   };
 
+  // 5) 동호회 삭제 (DELETE /club/delete/{clubId})
+  const handleDeleteMyClub = async (id) => {
+    const clubId = Number(id);
+    if (!clubId || Number.isNaN(clubId)) {
+      alert("클럽 ID를 확인할 수 없습니다. 새로고침 후 다시 시도해 주세요.");
+      return;
+    }
+
+    if (!window.confirm("정말 이 동호회를 삭제하시겠습니까?")) return;
+
+    try {
+      setDeletingId(id);
+      await deleteClub(clubId);
+
+      setMyClubs((prev) =>
+        prev.filter((club) => String(club.id) !== String(id))
+      );
+
+      const templates = loadLocalClubTemplates();
+      const filtered = templates.filter((c) => {
+        const cid = c.id ?? c.clubId ?? c.club_id ?? c.clubid;
+        return String(cid) !== String(clubId);
+      });
+      saveLocalClubTemplates(filtered);
+
+      alert("동호회가 삭제되었습니다.");
+    } catch (error) {
+      console.error("동호회 삭제 실패:", error);
+      alert("동호회 삭제 중 오류가 발생했습니다. 다시 시도해 주세요.");
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  // 로그아웃
   const handleLogout = () => {
     localStorage.removeItem("accessToken");
     localStorage.removeItem("access_token");
@@ -260,7 +392,7 @@ export default function MyPage() {
 
   return (
     <div className="min-h-screen bg-slate-50">
-      {/* 상단 제목 */}
+      {/* 상단 헤더 */}
       <header className="sticky top-0 z-10 bg-white shadow-sm">
         <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-4">
           <h1 className="text-lg font-semibold text-slate-900">마이페이지</h1>
@@ -278,11 +410,12 @@ export default function MyPage() {
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
-              className={`flex-1 py-3 transition ${
-                tab === t.id
+              className={
+                "flex-1 py-3 transition " +
+                (tab === t.id
                   ? "border-b-2 border-[#5131C3] text-[#5131C3]"
-                  : "hover:text-[#5131C3]"
-              }`}
+                  : "hover:text-[#5131C3]")
+              }
             >
               {t.label}
             </button>
@@ -292,11 +425,13 @@ export default function MyPage() {
 
       {/* 본문 */}
       <main className="mx-auto max-w-3xl px-4 py-6">
-        {/* 내 정보 */}
+        {/* 내 정보 탭 */}
         {tab === "profile" && (
           <section className="rounded-2xl bg-white p-6 shadow-sm">
             <div className="mb-4 flex items-center justify-between">
-              <h2 className="text-base font-semibold text-slate-900">내 정보</h2>
+              <h2 className="text-base font-semibold text-slate-900">
+                내 정보
+              </h2>
               {isEditingProfile ? (
                 <div className="flex gap-2">
                   <button
@@ -391,7 +526,7 @@ export default function MyPage() {
 
               <div>
                 <label className="mb-1 block text-xs font-medium text-slate-500">
-                  전화
+                  전화번호
                 </label>
                 <input
                   type="tel"
@@ -410,13 +545,13 @@ export default function MyPage() {
             )}
             {profileError && (
               <p className="mt-1 text-xs text-red-500">
-                내 정보를 불러오는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.
+                내 정보를 불러오는 중 문제가 발생했습니다. 다시 시도해 주세요.
               </p>
             )}
           </section>
         )}
 
-        {/* 내가 만든 동호회 */}
+        {/* 내가 만든 동호회 탭 */}
         {tab === "myClubs" && (
           <section className="space-y-4 rounded-2xl bg-white p-6 shadow-sm">
             <div className="mb-2 flex items-center justify-between">
@@ -427,7 +562,7 @@ export default function MyPage() {
 
             {myClubsError && (
               <p className="text-xs text-red-500">
-                동호회 목록을 불러오는 중 문제가 발생했습니다. 잠시 후 다시 시도해
+                동호회 목록을 불러오는 중 문제가 발생했습니다. 다시 시도해
                 주세요.
               </p>
             )}
@@ -458,7 +593,7 @@ export default function MyPage() {
                       key={club.id}
                       className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3"
                     >
-                      {/* 상단: 주요 정보 + 토글 */}
+                      {/* 상단: 주요 정보 + 펼치기 */}
                       <button
                         type="button"
                         onClick={() =>
@@ -482,15 +617,12 @@ export default function MyPage() {
                         </span>
                       </button>
 
-                      {/* 토글 펼친 영역: 상세 + 수정 */}
+                      {/* 펼쳐진 영역: 상세 + 수정 */}
                       {isExpanded && (
                         <div className="mt-3 border-t border-slate-200 pt-3 text-sm">
                           <div className="mb-3 flex items-center justify-between">
-                            <p className="text-xs text-slate-500">
-                              동호회 상세 정보
-                            </p>
                             {isEditing ? (
-                              <div className="flex gap-2">
+                              <div className="flex flex-wrap gap-2">
                                 <button
                                   onClick={() => setEditingClubId(null)}
                                   className="rounded-full border border-slate-200 px-3 py-1 text-xs"
@@ -499,18 +631,36 @@ export default function MyPage() {
                                 </button>
                                 <button
                                   onClick={() => handleSaveMyClub(club.id)}
-                                  className="rounded-full bg-[#F6A623] px-3 py-1 text-xs text-white"
+                                  className="rounded-full bg-[#F6A623] px-3 py-1 text-xs text-white disabled:opacity-60"
+                                  disabled={deletingId === club.id}
                                 >
                                   저장
                                 </button>
+                                <button
+                                  onClick={() => handleDeleteMyClub(club.id)}
+                                  className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                  disabled={deletingId === club.id}
+                                >
+                                  {deletingId === club.id ? "삭제 중..." : "삭제"}
+                                </button>
                               </div>
                             ) : (
-                              <button
-                                onClick={() => setEditingClubId(club.id)}
-                                className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-700"
-                              >
-                                수정
-                              </button>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => setEditingClubId(club.id)}
+                                  className="rounded-full border border-slate-200 px-3 py-1 text-xs text-slate-700"
+                                  disabled={deletingId === club.id}
+                                >
+                                  수정
+                                </button>
+                                <button
+                                  onClick={() => handleDeleteMyClub(club.id)}
+                                  className="rounded-full border border-red-200 px-3 py-1 text-xs text-red-600 hover:bg-red-50 disabled:opacity-50"
+                                  disabled={deletingId === club.id}
+                                >
+                                  {deletingId === club.id ? "삭제 중..." : "삭제"}
+                                </button>
+                              </div>
                             )}
                           </div>
 
@@ -546,15 +696,15 @@ export default function MyPage() {
                                 }
                                 disabled={!isEditing}
                                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                placeholder="예: ○○고등학교 / ○○중학교"
+                                placeholder="예) ○○고등학교 / ○○중학교"
                               />
                             </div>
 
-                            {/* 운동 종목 / 활동 강도 */}
+                            {/* 활동 종목 / 활동 강도 */}
                             <div className="grid gap-3 md:grid-cols-2">
                               <div>
                                 <label className="mb-1 block text-xs font-medium text-slate-500">
-                                  운동 종목
+                                  활동 종목
                                 </label>
                                 <input
                                   type="text"
@@ -580,11 +730,11 @@ export default function MyPage() {
                                   disabled={!isEditing}
                                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
                                 >
-                                  <option value="">선택해주세요</option>
+                                  <option value="">선택해 주세요</option>
                                   <option value="입문">입문</option>
                                   <option value="초급">초급</option>
                                   <option value="중급">중급</option>
-                                  <option value="상급">상급</option>
+                                  <option value="고급">고급</option>
                                 </select>
                               </div>
                             </div>
@@ -604,7 +754,7 @@ export default function MyPage() {
                                   }
                                   disabled={!isEditing}
                                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                  placeholder="예: 화요일, 토요일"
+                                  placeholder="예) 월, 수, 금"
                                 />
                               </div>
                               <div>
@@ -620,7 +770,7 @@ export default function MyPage() {
                                   }
                                   disabled={!isEditing}
                                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                  placeholder="예: 18:00 ~ 21:00"
+                                  placeholder="예) 18:00 ~ 21:00"
                                 />
                               </div>
                             </div>
@@ -640,7 +790,7 @@ export default function MyPage() {
                                   }
                                   disabled={!isEditing}
                                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                  placeholder="예: 20대 ~ 30대"
+                                  placeholder="예) 20대 ~ 30대"
                                 />
                               </div>
                               <div>
@@ -656,7 +806,7 @@ export default function MyPage() {
                                   }
                                   disabled={!isEditing}
                                   className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                  placeholder="예: 월 30,000원 / 연 10만원"
+                                  placeholder="예) 월 30,000원 / 연 10만 원"
                                 />
                               </div>
                             </div>
@@ -675,14 +825,14 @@ export default function MyPage() {
                                 disabled={!isEditing}
                                 rows={3}
                                 className="w-full resize-none rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                placeholder="동호회 분위기, 모집 대상, 활동 내용을 적어주세요."
+                                placeholder="동호회 분위기, 모집 대상, 활동 내용을 적어 주세요."
                               />
                             </div>
 
-                            {/* 대표 이름 */}
+                            {/* 대표자 이름 */}
                             <div>
                               <label className="mb-1 block text-xs font-medium text-slate-500">
-                                대표 이름
+                                대표자 이름
                               </label>
                               <input
                                 type="text"
@@ -693,7 +843,7 @@ export default function MyPage() {
                                 }
                                 disabled={!isEditing}
                                 className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs disabled:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#F6A623]/40"
-                                placeholder="예: 홍길동"
+                                placeholder="예) 홍길동"
                               />
                             </div>
 
@@ -743,10 +893,12 @@ export default function MyPage() {
           </section>
         )}
 
-        {/* 설정 */}
+        {/* 설정 탭 */}
         {tab === "settings" && (
           <section className="space-y-4 rounded-2xl bg-white p-6 shadow-sm">
-            <h2 className="mb-4 text-base font-semibold text-slate-900">설정</h2>
+            <h2 className="mb-4 text-base font-semibold text-slate-900">
+              설정
+            </h2>
 
             <button
               className="w-full rounded-xl border border-slate-200 px-4 py-3 text-left text-sm hover:bg-slate-50"
@@ -755,7 +907,7 @@ export default function MyPage() {
                 setIsEditingProfile(true);
               }}
             >
-              정보 수정
+              내 정보 수정하기
             </button>
 
             <button

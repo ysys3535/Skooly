@@ -35,8 +35,8 @@ export default function Header() {
           <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-blue-600 text-sm font-bold text-white">
             S
           </div>
-          <span className="text-base font-bold md:text-lg">
-            서비스명??????
+          <span className="text-2xl font-bold md:text-2xl">
+            Skooly
           </span>
         </Link>
 

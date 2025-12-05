@@ -1,7 +1,7 @@
-// src/pages/ClubRegisterPage.jsx
+﻿// src/pages/ClubRegisterPage.jsx
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { createClub, enrollClubToSchool } from "../api/clubs"; // ✅ 동호회 생성 + 학교 등록 API
+import { createClub, enrollClubToSchool } from "../api/clubs";
 import { searchSchools } from "../api/schools";
 
 const CLUB_TEMPLATES_KEY = "school_fitness_club_templates";
@@ -11,7 +11,7 @@ export default function ClubRegisterPage() {
 
   const [form, setForm] = useState({
     clubName: "",
-    school: "", // 학교 이름 (지금은 API에 직접 안 보내고 화면용 정보)
+    school: "",
     schoolId: "",
     clubId: "",
     sport: "",
@@ -28,13 +28,15 @@ export default function ClubRegisterPage() {
 
   const [savedClubs, setSavedClubs] = useState([]);
   const [isTemplateListOpen, setIsTemplateListOpen] = useState(false);
+  const [isSavingBasic, setIsSavingBasic] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [schools, setSchools] = useState([]);
   const [schoolKeyword, setSchoolKeyword] = useState("");
   const [isLoadingSchools, setIsLoadingSchools] = useState(false);
   const [schoolError, setSchoolError] = useState(null);
 
-  // 화면에서 선택한 한글 난이도를 백엔드 ENUM으로 변환
+  // 화면에서 선택한 난이도를 ENUM 값으로 변환
   const mapLevelToEnum = (level) => {
     switch (level) {
       case "입문":
@@ -43,7 +45,7 @@ export default function ClubRegisterPage() {
         return "BEGINNER";
       case "중급":
         return "INTERMEDIATE";
-      case "상급":
+      case "고급":
         return "ADVANCED";
       default:
         return "BEGINNER";
@@ -51,15 +53,20 @@ export default function ClubRegisterPage() {
   };
 
   const handleSchoolSearch = async () => {
+    if (!schoolKeyword.trim()) return;
+
     setIsLoadingSchools(true);
     setSchoolError(null);
+
     try {
       const data = await searchSchools({ keyword: schoolKeyword.trim(), page: 1 });
+
       const list = Array.isArray(data)
         ? data
         : Array.isArray(data?.schools)
-          ? data.schools
-          : [];
+        ? data.schools
+        : [];
+
       setSchools(list);
     } catch (error) {
       console.error("학교 검색 실패:", error);
@@ -69,7 +76,7 @@ export default function ClubRegisterPage() {
     }
   };
 
-  // 페이지 진입 시 localStorage에서 목록 불러오기
+  // 처음 마운트 시 로컬스토리지에서 템플릿 불러오기
   useEffect(() => {
     try {
       const stored = localStorage.getItem(CLUB_TEMPLATES_KEY);
@@ -80,7 +87,7 @@ export default function ClubRegisterPage() {
         }
       }
     } catch (e) {
-      console.error("저장된 동호회 목록 불러오기 실패:", e);
+      console.error("저장된 클럽 템플릿 로드 실패:", e);
     }
   }, []);
 
@@ -89,7 +96,6 @@ export default function ClubRegisterPage() {
     setForm((prev) => ({ ...prev, [name]: value }));
   };
 
-  // 🔹 템플릿 선택해서 폼에 채우기
   const handleSelectTemplate = (club) => {
     setForm((prev) => ({
       ...prev,
@@ -98,11 +104,10 @@ export default function ClubRegisterPage() {
     setIsTemplateListOpen(false);
   };
 
-  // 🔹 폼 제출 + API 호출 + 템플릿 저장
   const handleSubmit = async (e) => {
     e.preventDefault();
 
-    // 필수값 검사 (스펙에 맞춰 최소 필수만 확인)
+    // 필수 값 체크
     if (
       !form.clubName ||
       !form.school ||
@@ -112,25 +117,27 @@ export default function ClubRegisterPage() {
       !form.representativeName ||
       !form.phone
     ) {
-      alert("동호회 이름, 학교 이름/ID, 운동 종목, 소개글, 대표 이름, 전화번호는 필수입니다.");
+      alert(
+        "클럽명, 학교 이름/ID, 종목, 소개, 대표자 이름, 대표 전화번호는 필수 입력입니다."
+      );
       return;
     }
 
     const schoolIdNum = Number(form.schoolId);
 
     if (!schoolIdNum || Number.isNaN(schoolIdNum)) {
-      alert("학교 ID를 올바르게 입력해주세요 (숫자).");
+      alert("학교 ID를 숫자로 입력해 주세요.");
       return;
     }
 
-    // 전화번호 형식 검증
+    // 전화번호 형식 검사
     const phoneRegex = /^010-\d{4}-\d{4}$/;
     if (!phoneRegex.test(form.phone)) {
-      alert("전화번호는 010-1234-5678 형식으로 입력해주세요.");
+      alert("전화번호는 010-1234-5678 형식으로 입력해 주세요.");
       return;
     }
 
-    // 1) 클럽 기본 생성 (clubId 확보)
+    // 1) 클럽 기본 정보 생성 payload
     const createPayload = {
       clubName: form.clubName,
       captainName: form.representativeName,
@@ -139,10 +146,10 @@ export default function ClubRegisterPage() {
       description: form.description,
     };
 
-    // 2) 학교 등록 payload (clubId는 생성 후 할당)
+    // 2) 학교-클럽 등록 payload
     const enrollPayload = {
       schoolId: schoolIdNum,
-      clubId: null,
+      clubId: null, // 나중에 채움
       activeDays: form.day,
       activeTime: form.time,
       ageRange: form.ageRange,
@@ -155,66 +162,160 @@ export default function ClubRegisterPage() {
     setIsSubmitting(true);
 
     try {
-      console.log("동호회 생성 요청 payload:", createPayload);
+      let createdClubId = form.clubId;
 
-      // 1) 동호회 생성 → clubId 확보
-      const created = await createClub(createPayload);
-      console.log("동호회 생성 응답:", created);
-
-      const createdClubId =
-        created?.clubId || created?.id || created?.schoolClubId;
+      // 기본 정보가 아직 저장되지 않았다면 먼저 생성
       if (!createdClubId) {
-        throw new Error("생성된 clubId를 확인할 수 없습니다.");
+        console.log("클럽 생성 요청 payload:", createPayload);
+        const created = await createClub(createPayload);
+        console.log("클럽 생성 응답:", created);
+
+        createdClubId = created?.clubId || created?.id || created?.schoolClubId;
+        if (!createdClubId) {
+          throw new Error("생성된 clubId를 확인할 수 없습니다.");
+        }
+
+        // state에도 clubId 반영
+        setForm((prev) => ({ ...prev, clubId: String(createdClubId) }));
       }
 
-      // 폼에도 표시용 저장
-      setForm((prev) => ({ ...prev, clubId: String(createdClubId) }));
-
-      // 2) 학교에 동호회 등록
+      // 2) 학교에 클럽 등록
       const enrollPayloadWithId = { ...enrollPayload, clubId: createdClubId };
-      console.log("학교 등록 payload:", enrollPayloadWithId);
+      console.log("학교-클럽 등록 payload:", enrollPayloadWithId);
 
       const enrolled = await enrollClubToSchool(enrollPayloadWithId);
-      console.log("학교 등록 응답:", enrolled);
+      console.log("학교-클럽 등록 응답:", enrolled);
 
-      // ✅ 로컬 템플릿에도 저장
+      // 로컬스토리지 템플릿 저장/업데이트
       try {
         const stored = localStorage.getItem(CLUB_TEMPLATES_KEY);
         const prevList = stored ? JSON.parse(stored) : [];
         let nextList = Array.isArray(prevList) ? prevList : [];
 
+        const ownerId = localStorage.getItem("memberId") || null;
+        const formToSave = { ...form, ownerId };
+
         const exists = nextList.some(
-          (c) => c.clubName === form.clubName && c.sport === form.sport
+          (c) => c.clubName === formToSave.clubName && c.sport === formToSave.sport
         );
 
         if (!exists) {
-          nextList = [...nextList, form];
+          nextList = [...nextList, formToSave];
         } else {
           nextList = nextList.map((c) =>
-            c.clubName === form.clubName && c.sport === form.sport ? form : c
+            c.clubName === formToSave.clubName && c.sport === formToSave.sport
+              ? formToSave
+              : c
           );
         }
 
         localStorage.setItem(CLUB_TEMPLATES_KEY, JSON.stringify(nextList));
         setSavedClubs(nextList);
       } catch (error) {
-        console.error("동호회 템플릿 저장 실패:", error);
+        console.error("클럽 템플릿 저장 실패:", error);
       }
 
       const clubNameForAlert =
         created?.clubName || created?.name || form.clubName;
-      alert(`"${clubNameForAlert}" 동호회 생성 및 학교 등록이 완료되었습니다!`);
+      alert(`"${clubNameForAlert}" 클럽이 생성되고 학교에 등록되었습니다.`);
       navigate("/clubs");
     } catch (error) {
-      console.error("동호회 생성 실패:", error);
+      console.error("클럽 등록 실패:", error);
 
       if (error.code === "ERR_NETWORK") {
-        alert("서버가 아직 준비되지 않았어요. 서버가 켜지면 다시 시도해주세요!");
+        alert("네트워크 오류입니다. 서버가 준비된 뒤 다시 시도해 주세요.");
       } else {
-        alert(error.message || "동호회 등록 중 문제가 발생했습니다 🥲");
+        alert(error.message || "클럽 등록 중 문제가 발생했습니다.");
       }
     } finally {
       setIsSubmitting(false);
+    }
+  }; // 🔹 handleSubmit 함수 여기서 끝!
+
+  const handleSaveBasicInfo = async () => {
+    if (form.clubId) {
+      alert("이미 생성된 clubId가 있습니다. 새로 만들려면 폼을 초기화해 주세요.");
+      return;
+    }
+
+    if (
+      !form.clubName ||
+      !form.representativeName ||
+      !form.phone ||
+      !form.description
+    ) {
+      alert("클럽명, 대표자 이름, 대표 연락처, 소개는 필수 입력입니다.");
+      return;
+    }
+
+    const phoneRegex = /^010-\d{4}-\d{4}$/;
+    if (!phoneRegex.test(form.phone)) {
+      alert("전화번호는 010-1234-5678 형식으로 입력해 주세요.");
+      return;
+    }
+
+    const createPayload = {
+      clubName: form.clubName,
+      captainName: form.representativeName,
+      phone: form.phone,
+      email: form.email || null,
+      description: form.description,
+    };
+
+    setIsSavingBasic(true);
+    try {
+      const created = await createClub(createPayload);
+      const createdClubId =
+        created?.clubId || created?.id || created?.schoolClubId;
+
+      if (!createdClubId) {
+        throw new Error("생성된 clubId를 확인할 수 없습니다.");
+      }
+
+      const ownerId = localStorage.getItem("memberId") || null;
+      const updatedForm = {
+        ...form,
+        clubId: String(createdClubId),
+        ownerId,
+      };
+      setForm(updatedForm);
+
+      // 로컬스토리지 및 목록 갱신
+      try {
+        const stored = localStorage.getItem(CLUB_TEMPLATES_KEY);
+        const prevList = stored ? JSON.parse(stored) : [];
+        let nextList = Array.isArray(prevList) ? prevList : [];
+
+        const exists = nextList.some(
+          (c) => c.clubName === updatedForm.clubName && c.sport === updatedForm.sport
+        );
+
+        if (!exists) {
+          nextList = [...nextList, updatedForm];
+        } else {
+          nextList = nextList.map((c) =>
+            c.clubName === updatedForm.clubName && c.sport === updatedForm.sport
+              ? updatedForm
+              : c
+          );
+        }
+
+        localStorage.setItem(CLUB_TEMPLATES_KEY, JSON.stringify(nextList));
+        setSavedClubs(nextList);
+      } catch (storageError) {
+        console.error("클럽 템플릿 저장 실패:", storageError);
+      }
+
+      alert("클럽 기본 정보가 저장되었습니다. 생성된 clubId가 채워졌어요.");
+    } catch (error) {
+      console.error("클럽 기본 정보 저장 실패:", error);
+      if (error.code === "ERR_NETWORK") {
+        alert("네트워크 오류입니다. 서버가 준비된 뒤 다시 시도해 주세요.");
+      } else {
+        alert(error.message || "클럽 기본 정보를 저장하는 중 문제가 발생했습니다.");
+      }
+    } finally {
+      setIsSavingBasic(false);
     }
   };
 
@@ -222,7 +323,7 @@ export default function ClubRegisterPage() {
     <div className="min-h-screen bg-[#EFF6FF]">
       <header className="bg-white border-b">
         <div className="mx-auto max-w-3xl px-4 py-4 flex items-center justify-between">
-          <h1 className="text-lg font-semibold md:text-xl">동호회 등록</h1>
+          <h1 className="text-lg font-semibold md:text-xl">클럽 등록</h1>
         </div>
       </header>
 
@@ -231,22 +332,18 @@ export default function ClubRegisterPage() {
           onSubmit={handleSubmit}
           className="space-y-5 rounded-2xl bg-white p-5 shadow-sm md:p-6"
         >
-          <p className="text-xs text-gray-500 md:text-sm">
-            체육 동호회 등록을 위해 아래 정보를 모두 작성해 주세요.
-            <br />
             <span className="text-red-500">*</span> 표시는 필수 입력 항목입니다.
-          </p>
 
-          {/* 🔹 저장된 동호회 목록 / 템플릿 불러오기 영역 */}
+          {/* 저장된 클럽 템플릿 안내 영역 */}
           {savedClubs.length > 0 && (
             <div className="rounded-2xl border border-blue-100 bg-blue-50 px-3 py-3 md:px-4 md:py-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-[12px] text-gray-900 md:text-xs">
                   <p className="font-medium">
-                    이전에 등록한 동호회 정보를 불러와서 사용할 수 있어요.
+                    이전에 등록한 클럽 정보를 템플릿으로 불러올 수 있어요.
                   </p>
                   <p className="mt-1 text-[11px] text-gray-500 md:text-xs">
-                    여러 개의 동호회 템플릿 중에서 하나를 선택해 폼을 자동으로 채울 수 있습니다.
+                    아래 목록에서 하나를 선택하면 폼에 자동으로 채워집니다.
                   </p>
                 </div>
                 <button
@@ -270,16 +367,16 @@ export default function ClubRegisterPage() {
                       <div className="flex items-center justify-between gap-2">
                         <div>
                           <p className="font-semibold text-gray-800">
-                            {club.clubName || "이름 없는 동호회"}
+                            {club.clubName || "이름 없는 클럽"}
                           </p>
                           <p className="mt-0.5 text-[11px] text-gray-500 md:text-xs">
-                            {club.school || "학교 미입력"} ·{" "}
-                            {club.sport || "종목 미입력"} ·{" "}
-                            {club.day || "요일 미입력"}{" "}
+                            {club.school || "학교 미지정"} ·{" "}
+                            {club.sport || "종목 미지정"} ·{" "}
+                            {club.day || "요일 미지정"}{" "}
                             {club.time ? `· ${club.time}` : ""}
                           </p>
                         </div>
-                        <span className="text-[11px] text-blue-600">선택</span>
+                        <span className="text-[11px] text-blue-600">불러오기</span>
                       </div>
                     </button>
                   ))}
@@ -288,10 +385,13 @@ export default function ClubRegisterPage() {
             </div>
           )}
 
+          {/* 1) 클럽 기본 정보 */}
           <div className="space-y-3">
-            <p className="text-sm font-semibold text-gray-800">1) 동호회 기본 정보 생성 (/club/create)</p>
+            <p className="text-sm font-semibold text-gray-800">
+              1. 동호회 기본 정보
+            </p>
 
-            {/* 동호회 이름 */}
+            {/* 클럽 이름 */}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
                 동호회 이름 <span className="text-red-500">*</span>
@@ -302,14 +402,14 @@ export default function ClubRegisterPage() {
                 value={form.clubName}
                 onChange={handleChange}
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                placeholder="예: ○○고 농구 동호회"
+                placeholder="예) 스쿨리 농구 동호회"
               />
             </div>
 
-            {/* 대표 이름 */}
+            {/* 대표자 이름 */}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                대표 이름 <span className="text-red-500">*</span>
+                대표자 이름 <span className="text-red-500">*</span>
               </label>
               <input
                 type="text"
@@ -317,14 +417,14 @@ export default function ClubRegisterPage() {
                 value={form.representativeName}
                 onChange={handleChange}
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                placeholder="예: 홍길동"
+                placeholder="대표자 성함을 입력해 주세요"
               />
             </div>
 
-            {/* 대표 전화 */}
+            {/* 대표 연락처 */}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                대표 전화 <span className="text-red-500">*</span>
+                대표 연락처 <span className="text-red-500">*</span>
               </label>
               <input
                 type="tel"
@@ -351,10 +451,10 @@ export default function ClubRegisterPage() {
               />
             </div>
 
-            {/* 소개글 */}
+            {/* 클럽 소개 */}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                소개글 <span className="text-red-500">*</span>
+                동호회 소개 <span className="text-red-500">*</span>
               </label>
               <textarea
                 name="description"
@@ -362,28 +462,43 @@ export default function ClubRegisterPage() {
                 onChange={handleChange}
                 rows={4}
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none resize-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                placeholder="동호회 소개를 작성해주세요."
+                placeholder="클럽 활동 내용과 분위기를 소개해 주세요."
               />
             </div>
           </div>
 
+          {/* 기본 정보만 저장 버튼 */}
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={handleSaveBasicInfo}
+              disabled={isSavingBasic || isSubmitting}
+              className="rounded-full bg-green-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-green-700 disabled:opacity-60"
+            >
+              {isSavingBasic ? "저장 중..." : "클럽 기본 정보 저장"}
+            </button>
+          </div>
+
           <div className="my-2 h-px bg-slate-200" />
 
+          {/* 2) 학교-클럽 등록 정보 */}
           <div className="space-y-3">
-            <p className="text-sm font-semibold text-gray-800">2) 학교에 동호회 등록 (/school/club)</p>
+            <p className="text-sm font-semibold text-gray-800">
+              2. 학교-동호회 등록
+            </p>
 
             {/* 생성된 clubId 표시 */}
             <div className="grid gap-4 md:grid-cols-2">
               <div>
                 <label className="mb-1 block text-xs font-medium text-gray-700">
-                  생성된 clubId (읽기전용)
+                  생성된 clubId (자동)
                 </label>
                 <input
                   type="text"
                   value={form.clubId}
                   readOnly
                   className="w-full rounded-xl border border-gray-200 bg-slate-50 px-3 py-2 text-sm text-slate-700"
-                  placeholder="생성 후 자동 입력"
+                  placeholder="클럽 생성 후 자동으로 채워집니다."
                 />
               </div>
               <div>
@@ -396,7 +511,7 @@ export default function ClubRegisterPage() {
                   value={form.schoolId}
                   onChange={handleChange}
                   className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  placeholder="예: 1"
+                  placeholder="예) 1"
                   min="1"
                 />
               </div>
@@ -413,7 +528,7 @@ export default function ClubRegisterPage() {
                   value={schoolKeyword}
                   onChange={(e) => setSchoolKeyword(e.target.value)}
                   className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  placeholder="학교 이름을 입력하세요 (예: ○○고)"
+                  placeholder="학교 이름을 입력해 검색해 주세요 (예: 스쿨리고)"
                 />
                 <button
                   type="button"
@@ -426,13 +541,13 @@ export default function ClubRegisterPage() {
               </div>
               {schoolError && (
                 <p className="text-xs text-red-500">
-                  학교 목록을 불러오는 중 오류가 발생했습니다. 다시 시도해주세요.
+                  학교 목록을 불러오는 중 오류가 발생했습니다. 다시 시도해 주세요.
                 </p>
               )}
               <div className="max-h-52 overflow-y-auto rounded-xl border border-slate-200 bg-slate-50">
                 {schools.length === 0 ? (
                   <p className="px-3 py-2 text-xs text-slate-500">
-                    검색 결과가 없습니다. 키워드를 입력해 검색해주세요.
+                    검색 결과가 없습니다. 다른 키워드로 다시 검색해 주세요.
                   </p>
                 ) : (
                   schools.map((s) => (
@@ -453,7 +568,7 @@ export default function ClubRegisterPage() {
                       }`}
                     >
                       <p className="font-semibold">
-                        {s.schoolName || s.name || "학교명 미상"}
+                        {s.schoolName || s.name || "학교 이름 미지정"}
                       </p>
                       <p className="text-[11px] text-slate-500">
                         ID: {s.schoolId || s.id || "?"}
@@ -464,15 +579,15 @@ export default function ClubRegisterPage() {
               </div>
               {form.school && form.schoolId && (
                 <p className="text-xs text-blue-700">
-                  선택된 학교: {form.school} (ID: {form.schoolId})
+                  선택한 학교: {form.school} (ID: {form.schoolId})
                 </p>
               )}
             </div>
 
-            {/* 운동 종목 */}
+            {/* 종목 */}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                운동 종목 <span className="text-red-500">*</span>
+                종목 <span className="text-red-500">*</span>
               </label>
               <select
                 name="sport"
@@ -480,12 +595,12 @@ export default function ClubRegisterPage() {
                 onChange={handleChange}
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               >
-                <option value="">선택해주세요</option>
+                <option value="">선택해 주세요</option>
                 <option value="농구">농구</option>
-                <option value="풋살">풋살</option>
+                <option value="축구">축구</option>
                 <option value="배드민턴">배드민턴</option>
+                <option value="배구">배구</option>
                 <option value="탁구">탁구</option>
-                <option value="테니스">테니스</option>
                 <option value="기타">기타</option>
               </select>
             </div>
@@ -502,7 +617,7 @@ export default function ClubRegisterPage() {
                   value={form.day}
                   onChange={handleChange}
                   className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  placeholder="예: 화요일, 토요일"
+                  placeholder="예) 월, 수, 금"
                 />
               </div>
 
@@ -516,61 +631,60 @@ export default function ClubRegisterPage() {
                   value={form.time}
                   onChange={handleChange}
                   className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                  placeholder="예: 18:00 ~ 21:00"
+                  placeholder="예) 18:00 ~ 21:00"
                 />
               </div>
             </div>
 
-          {/* 5~6. 연령대 / 활동 강도 */}
-          <div className="grid gap-4 md:grid-cols-2">
+            {/* 5~6. 연령대 / 활동 난이도 */}
+            <div className="grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-700">
+                  연령대
+                </label>
+                <input
+                  type="text"
+                  name="ageRange"
+                  value={form.ageRange}
+                  onChange={handleChange}
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                  placeholder="예) 20대 ~ 30대"
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs font-medium text-gray-700">
+                  활동 난이도
+                </label>
+                <select
+                  name="level"
+                  value={form.level}
+                  onChange={handleChange}
+                  className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+                >
+                  <option value="">선택해 주세요</option>
+                  <option value="입문">입문</option>
+                  <option value="초급">초급</option>
+                  <option value="중급">중급</option>
+                  <option value="고급">고급</option>
+                </select>
+              </div>
+            </div>
+
+            {/* 7. 참가비 안내 */}
             <div>
               <label className="mb-1 block text-xs font-medium text-gray-700">
-                연령대
+                참가비 안내
               </label>
               <input
                 type="text"
-                name="ageRange"
-                value={form.ageRange}
+                name="fee"
+                value={form.fee}
                 onChange={handleChange}
                 className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-                placeholder="예: 20대 ~ 30대"
+                placeholder="예) 월 30,000원 / 연 10만 원"
               />
             </div>
-
-            <div>
-              <label className="mb-1 block text-xs font-medium text-gray-700">
-                활동 강도
-              </label>
-              <select
-                name="level"
-                value={form.level}
-                onChange={handleChange}
-                className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              >
-                <option value="">선택해주세요</option>
-                <option value="입문">입문</option>
-                <option value="초급">초급</option>
-                <option value="중급">중급</option>
-                <option value="상급">상급</option>
-              </select>
-            </div>
-          </div>
-
-          {/* 7. 예상 회비 */}
-          <div>
-            <label className="mb-1 block text-xs font-medium text-gray-700">
-              예상 회비
-            </label>
-            <input
-              type="text"
-              name="fee"
-              value={form.fee}
-              onChange={handleChange}
-              className="w-full rounded-xl border border-gray-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
-              placeholder="예: 월 30,000원 / 연 10만원"
-            />
-          </div>
-
           </div>
 
           {/* 버튼 영역 */}
@@ -587,11 +701,10 @@ export default function ClubRegisterPage() {
               disabled={isSubmitting}
               className="rounded-full bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
             >
-              {isSubmitting ? "등록 중..." : "등록 신청하기"}
+              {isSubmitting ? "등록 중..." : "등록하기"}
             </button>
           </div>
         </form>
-
       </main>
     </div>
   );

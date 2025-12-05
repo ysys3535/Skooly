@@ -37,6 +37,7 @@ const normalizeInitialSchool = (raw, fallbackId) => {
     cost: raw.cost ?? null,
     howToReserve: raw.howToReserve || "",
     schoolHomepageUrl: raw.schoolHomepageUrl || "",
+    eduOfficeUrl: raw.eduOfficeUrl || raw.eduOfficialUrl || "",
     eduOfficialUrl: raw.eduOfficialUrl || "",
     localPortalUrl: raw.localPortalUrl || "",
     schoolTel: raw.schoolTel || "",
@@ -55,6 +56,11 @@ export default function SchoolDetailPage() {
   const clubsRef = useRef(null);
   const mapContainerRef = useRef(null);
   const mapRef = useRef(null);
+  const [copiedHomepage, setCopiedHomepage] = useState(false);
+  const [copiedEduOffice, setCopiedEduOffice] = useState(false);
+  const geocodeRequestedRef = useRef(false);
+  const storageKey =
+    schoolId != null ? `school_location_${String(schoolId)}` : null;
 
   const initialSchool = location.state?.school ?? null;
 
@@ -64,10 +70,33 @@ export default function SchoolDetailPage() {
   const [isLoadingSchool] = useState(false);
   const [schoolError, setSchoolError] = useState(null);
 
-  const [schoolLocation, setSchoolLocation] = useState(() => ({
-    lat: school?.lat ?? 37.498095,
-    lng: school?.lng ?? 127.02761,
-  }));
+  const [schoolLocation, setSchoolLocation] = useState(() => {
+    let saved = null;
+    if (storageKey) {
+      try {
+        const raw = localStorage.getItem(storageKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (
+            parsed &&
+            typeof parsed.lat === "number" &&
+            typeof parsed.lng === "number"
+          ) {
+            saved = parsed;
+          }
+        }
+      } catch (error) {
+        console.warn("Failed to load saved location:", error);
+      }
+    }
+
+    const base = {
+      lat: school?.lat ?? 37.498095,
+      lng: school?.lng ?? 127.02761,
+    };
+
+    return saved ? { ...base, ...saved } : base;
+  });
 
   const [clubs, setClubs] = useState([]);
   const [isLoadingClubs, setIsLoadingClubs] = useState(true);
@@ -82,10 +111,68 @@ export default function SchoolDetailPage() {
   }, [initialSchool]);
 
   useEffect(() => {
-    if (school?.lat != null && school?.lng != null) {
-      setSchoolLocation({ lat: school.lat, lng: school.lng });
+    const latNum =
+      school?.lat != null && !Number.isNaN(Number(school.lat))
+        ? Number(school.lat)
+        : null;
+    const lngNum =
+      school?.lng != null && !Number.isNaN(Number(school.lng))
+        ? Number(school.lng)
+        : null;
+
+    if (latNum != null && lngNum != null) {
+      setSchoolLocation({ lat: latNum, lng: lngNum });
+      geocodeRequestedRef.current = true;
+      return;
     }
-  }, [school?.lat, school?.lng]);
+
+    if (
+      geocodeRequestedRef.current ||
+      !school?.address ||
+      !window.kakao ||
+      !window.kakao.maps ||
+      !window.kakao.maps.services
+    ) {
+      return;
+    }
+
+    geocodeRequestedRef.current = true;
+    const geocoder = new window.kakao.maps.services.Geocoder();
+    geocoder.addressSearch(school.address, (result, status) => {
+      if (status === window.kakao.maps.services.Status.OK && result[0]) {
+        const { x, y } = result[0];
+        const latFromAddr = Number(y);
+        const lngFromAddr = Number(x);
+        if (!Number.isNaN(latFromAddr) && !Number.isNaN(lngFromAddr)) {
+          setSchoolLocation({ lat: latFromAddr, lng: lngFromAddr });
+        }
+      }
+    });
+  }, [school?.lat, school?.lng, school?.address]);
+
+  useEffect(() => {
+    if (!storageKey) return;
+    if (
+      schoolLocation.lat == null ||
+      schoolLocation.lng == null ||
+      Number.isNaN(schoolLocation.lat) ||
+      Number.isNaN(schoolLocation.lng)
+    ) {
+      return;
+    }
+
+    try {
+      localStorage.setItem(
+        storageKey,
+        JSON.stringify({
+          lat: schoolLocation.lat,
+          lng: schoolLocation.lng,
+        })
+      );
+    } catch (error) {
+      console.warn("Failed to save location:", error);
+    }
+  }, [schoolLocation.lat, schoolLocation.lng, storageKey]);
 
   useEffect(() => {
     const fetchClubs = async () => {
@@ -181,6 +268,90 @@ export default function SchoolDetailPage() {
     { label: "락커룸", value: school?.lockerRoomCount },
   ];
 
+  const operationItemsList = (() => {
+    const raw = (school?.operationItems || "").trim();
+    if (!raw) return [];
+    return raw
+      .split(/\r?\n|,|;/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  })();
+
+  const operationTimesList = (() => {
+    const raw = (school?.operationTimes || school?.openPeriod || "").trim();
+    if (!raw) return [];
+
+    const DAY_ORDER = ["월", "화", "수", "목", "금", "토", "일"];
+    const dayLabel = (d) => `${d}요일`;
+    const resultMap = new Map();
+
+    // 요일 단위로 쪼개서 시간 매칭
+    const matches =
+      raw.match(/(?:월|화|수|목|금|토|일)(?:요일)?[^월화수목금토일]*/g) || [];
+
+    matches.forEach((segment) => {
+      const dayChar = segment[0];
+      const content = segment.slice(1).replace(/^요일?/, "").trim();
+      const time = content.replace(/^[:\-–~\s]+/, "").trim();
+      resultMap.set(dayChar, time || "-");
+    });
+
+    // 매칭이 없을 경우 기존 분리 방식 사용
+    if (resultMap.size === 0) {
+      return raw
+        .split(/\r?\n|,|;/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+
+    return DAY_ORDER.map(
+      (d) => `${dayLabel(d)}: ${resultMap.get(d) || "-"}`
+    );
+  })();
+
+  const schoolHomepageUrl = school?.schoolHomepageUrl || "";
+  const eduOfficeUrl = school?.eduOfficeUrl || school?.eduOfficialUrl || "";
+
+  const homepageHost = (() => {
+    if (!schoolHomepageUrl) return "";
+    try {
+      return new URL(schoolHomepageUrl).hostname;
+    } catch (error) {
+      return schoolHomepageUrl;
+    }
+  })();
+
+  const eduOfficeHost = (() => {
+    if (!eduOfficeUrl) return "";
+    try {
+      return new URL(eduOfficeUrl).hostname;
+    } catch (error) {
+      return eduOfficeUrl;
+    }
+  })();
+
+  const handleCopyHomepage = async () => {
+    if (!schoolHomepageUrl || !navigator?.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(schoolHomepageUrl);
+      setCopiedHomepage(true);
+      setTimeout(() => setCopiedHomepage(false), 1500);
+    } catch (error) {
+      console.error("홈페이지 URL 복사 실패:", error);
+    }
+  };
+
+  const handleCopyEduOffice = async () => {
+    if (!eduOfficeUrl || !navigator?.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(eduOfficeUrl);
+      setCopiedEduOffice(true);
+      setTimeout(() => setCopiedEduOffice(false), 1500);
+    } catch (error) {
+      console.error("교육청 URL 복사 실패:", error);
+    }
+  };
+
   return (
     <div className="bg-[#EFF6FF] min-h-screen bg-slate-50">
       <header className="bg-white border-b">
@@ -213,17 +384,40 @@ export default function SchoolDetailPage() {
                 <p className="text-[11px] font-semibold text-gray-600 md:text-xs">
                   운영 항목
                 </p>
-                <p className="mt-1">
-                  {school?.operationItems || "운영 항목 정보 없음"}
-                </p>
+                {operationItemsList.length > 0 ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {operationItemsList.map((item) => (
+                      <span
+                        key={item}
+                        className="rounded-full bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 shadow-sm md:text-xs"
+                      >
+                        {item}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1">운영 항목 정보 없음</p>
+                )}
               </div>
               <div className="rounded-xl bg-gray-50 px-3 py-2">
                 <p className="text-[11px] font-semibold text-gray-600 md:text-xs">
                   운영 시간
                 </p>
-                <p className="mt-1">
-                  {school?.operationTimes || school?.openPeriod || "운영 시간 정보 없음"}
-                </p>
+                {operationTimesList.length > 0 ? (
+                  <div className="mt-1 space-y-1">
+                    {operationTimesList.map((time, idx) => (
+                      <div
+                        key={`${time}-${idx}`}
+                        className="flex items-center gap-2 rounded-lg bg-white px-2 py-1 text-[11px] shadow-sm md:text-xs"
+                      >
+                        <span className="h-1.5 w-1.5 rounded-full bg-blue-400" />
+                        <span className="text-gray-800">{time}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="mt-1">운영 시간 정보 없음</p>
+                )}
               </div>
               <div className="rounded-xl bg-gray-50 px-3 py-2">
                 <p className="text-[11px] font-semibold text-gray-600 md:text-xs">
@@ -251,16 +445,6 @@ export default function SchoolDetailPage() {
               </div>
             </div>
             <div className="mt-4 flex flex-wrap gap-2">
-              {school?.schoolHomepageUrl && (
-                <a
-                  href={school.schoolHomepageUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 md:text-xs"
-                >
-                  학교 홈페이지
-                </a>
-              )}
               {school?.localPortalUrl && (
                 <a
                   href={school.localPortalUrl}
@@ -273,7 +457,7 @@ export default function SchoolDetailPage() {
               )}
               {school?.eduOfficialUrl && (
                 <a
-                  href={school.eduOfficialUrl}
+                  href={eduOfficeUrl || school.eduOfficialUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 md:text-xs"
@@ -281,14 +465,49 @@ export default function SchoolDetailPage() {
                   교육청 안내
                 </a>
               )}
-              {!school?.schoolHomepageUrl &&
-                !school?.localPortalUrl &&
-                !school?.eduOfficialUrl && (
-                  <span className="text-[11px] text-gray-500 md:text-xs">
-                    제공된 링크가 없습니다.
-                  </span>
-                )}
             </div>
+            {schoolHomepageUrl && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-blue-50 px-3 py-2 text-[11px] text-blue-800 md:text-xs">
+                <span className="font-semibold text-blue-900">학교 홈페이지</span>
+                <a
+                  href={schoolHomepageUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="max-w-[240px] truncate underline underline-offset-4 hover:text-blue-600"
+                  title={schoolHomepageUrl}
+                >
+                  {homepageHost}
+                </a>
+                <button
+                  type="button"
+                  onClick={handleCopyHomepage}
+                  className="rounded-lg border border-blue-200 bg-white px-2 py-1 font-semibold text-blue-700 hover:bg-blue-100"
+                >
+                  {copiedHomepage ? "복사됨" : "URL 복사"}
+                </button>
+              </div>
+            )}
+            {eduOfficeUrl && (
+              <div className="mt-2 flex flex-wrap items-center gap-2 rounded-xl bg-emerald-50 px-3 py-2 text-[11px] text-emerald-800 md:text-xs">
+                <span className="font-semibold text-emerald-900">교육청</span>
+                <a
+                  href={eduOfficeUrl}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="max-w-[240px] truncate underline underline-offset-4 hover:text-emerald-700"
+                  title={eduOfficeUrl}
+                >
+                  {eduOfficeHost}
+                </a>
+                <button
+                  type="button"
+                  onClick={handleCopyEduOffice}
+                  className="rounded-lg border border-emerald-200 bg-white px-2 py-1 font-semibold text-emerald-700 hover:bg-emerald-100"
+                >
+                  {copiedEduOffice ? "복사됨" : "URL 복사"}
+                </button>
+              </div>
+            )}
           </div>
 
           {/* 시설/편의 정보 박스 */}
@@ -327,7 +546,21 @@ export default function SchoolDetailPage() {
             </div>
           </div>
 
-          {/* 기본 정보 박스 */}
+        </section>
+
+        {/* 오른쪽: 지도 + 동호회 리스트 */}
+        <section className="flex-1 space-y-4">
+          <div className="rounded-2xl bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-semibold text-gray-800 md:text-base">
+              위치
+            </h2>
+            <div
+              ref={mapContainerRef}
+              className="mt-2 h-52 rounded-xl border border-dashed border-gray-300 bg-slate-100 md:h-64"
+            />
+          </div>
+
+          {/* 학교 기본 정보: 위치 아래로 이동 */}
           <div className="rounded-2xl bg-white p-4 shadow-sm">
             <h2 className="text-base font-semibold md:text-lg">학교 기본 정보</h2>
             <div className="mt-3 grid gap-3 text-xs text-gray-800 md:grid-cols-2 md:text-sm">
@@ -358,19 +591,6 @@ export default function SchoolDetailPage() {
                 </p>
               </div>
             </div>
-          </div>
-        </section>
-
-        {/* 오른쪽: 지도 + 동호회 리스트 */}
-        <section className="flex-1 space-y-4">
-          <div className="rounded-2xl bg-white p-4 shadow-sm">
-            <h2 className="text-sm font-semibold text-gray-800 md:text-base">
-              위치
-            </h2>
-            <div
-              ref={mapContainerRef}
-              className="mt-2 h-52 rounded-xl border border-dashed border-gray-300 bg-slate-100 md:h-64"
-            />
           </div>
 
           <div ref={clubsRef} className="rounded-2xl bg-white p-4 shadow-sm">
