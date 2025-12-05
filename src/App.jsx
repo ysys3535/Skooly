@@ -1,6 +1,6 @@
 // src/App.jsx
 import { useState } from "react";
-import { Routes, Route, Outlet, Navigate } from "react-router-dom";
+import { Routes, Route, Outlet, Navigate, useNavigate } from "react-router-dom";
 import Header from "./components/Header.jsx";
 
 import HomePage from "./pages/HomePage.jsx";
@@ -17,7 +17,18 @@ import ProtectedRoute from "./components/ProtectedRoute.jsx";
 import ChatbotWidget from "./components/ChatbotWidget.jsx"; // ⬅️ 새로 추가될 위젯 컴포넌트
 
 function Layout() {
+  const navigate = useNavigate();
   const [isChatOpen, setIsChatOpen] = useState(false);
+
+  const handleChatToggle = () => {
+    const memberId = localStorage.getItem("memberId");
+    if (!memberId) {
+      alert("로그인이 필요한 서비스입니다. 로그인 페이지로 이동합니다.");
+      navigate("/login");
+      return;
+    }
+    setIsChatOpen((prev) => !prev);
+  };
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -30,7 +41,7 @@ function Layout() {
       {/* 우측 하단 고정 챗봇 버튼 (페이지 이동 X, 위젯 토글) */}
       <button
         type="button"
-        onClick={() => setIsChatOpen((prev) => !prev)}
+        onClick={handleChatToggle}
         className="fixed bottom-4 right-4 z-50 flex h-12 w-12 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg hover:bg-blue-700 md:h-14 md:w-14"
         aria-label="체육시설 예약 챗봇 열기"
       >
